@@ -18,6 +18,8 @@ Per pubblicare una versione: `Scripts/release.sh 1.2.0 "Note di rilascio"` (impo
 
 ## Funzionalità
 
+- **Panoramica**: cosa chiede attenzione adesso — sessioni in attesa di una risposta, sessioni al lavoro, chat in lavorazione ferme da più di 3 giorni, chat la cui cartella non esiste più (da ricollegare con “Sposta in…”), chat che conviene snellire.
+- **In lavorazione**: la lista breve delle chat che stai seguendo, aggiunte e tolte da te (menu contestuale); nessuna esce da sola.
 - **Chat**: tutte le conversazioni di `~/.claude/projects` con titolo, progetto, account usati, numero di messaggi e dimensione. Ricerca per titolo o nel contenuto (grep), filtri per progetto e account, anteprima della conversazione.
   - **Riprendi** in Warp (o Terminale) scegliendo l'account: `CLAUDE_CONFIG_DIR=… claude --resume <id>` nella cartella giusta.
   - **Rinomina**: scrive gli stessi record di `/rename` (`custom-title`, `agent-name`).
@@ -50,6 +52,13 @@ Configurazione in `~/Library/Application Support/AISwitchboard/config.json`.
 Con **Apertura diretta** attiva (pagina Account) l'app aggiunge a `~/.zshrc` un blocco delimitato da `# >>> AI Switchboard >>>` (salvando prima una copia in `~/.ai-switchboard/zshrc.backup`). “Riprendi” e “Nuova chat” scrivono il comando in `~/.ai-switchboard/launch/<id>.zsh` con la cartella sulla prima riga e aprono una scheda Warp lì: al primo prompt il blocco esegue il comando di quella cartella (solo se più recente di 30 secondi, una volta per scheda). Disattivandola il blocco viene rimosso.
 
 Se l'apertura diretta non è attiva, al primo “Riprendi” l'app chiede di attivarla (“Attiva e apri”) oppure apre la scheda lasciando il comando negli appunti. Il vecchio metodo con ⌘V simulato è stato tolto: con la firma ad-hoc il permesso Accessibilità si perde a ogni build. Senza Warp usa Terminale.
+
+## Test
+
+```bash
+swift test                                   # motori su chat di prova
+AISW_REAL_CHATS=/percorso/a.jsonl:/percorso/b.jsonl swift test --filter RealChatsTests   # su copie di chat reali
+```
 
 ## Build
 

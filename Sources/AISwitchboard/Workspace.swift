@@ -18,6 +18,9 @@ struct SwitchboardConfig: Codable {
     var autoDescriptions: Bool?
     /// False until the first-run setup is completed (nil in configs made before it existed).
     var onboardingDone: Bool?
+    /// Chats marked “in lavorazione”, most recently added first: the short list of what is being
+    /// followed right now. Only the user adds or removes them.
+    var workingChats: [String]?
 
     private static var url: URL { ClaudePaths.appSupport.appendingPathComponent("config.json") }
 

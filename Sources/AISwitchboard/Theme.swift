@@ -290,3 +290,37 @@ struct FlowLayout: Layout {
         return rows
     }
 }
+
+/// How much of Claude's context window a chat fills when it is resumed: a small bar plus the
+/// figure, green under half, orange towards the auto-compaction point, red beyond it.
+struct ContextMeter: View {
+    let tokens: Int
+    /// nil: 200k, or 1M once the chat is past 200k (it could only get there on a 1M-context model).
+    var window: Int? = nil
+    var compact = false
+
+    private var limit: Int { window ?? (tokens > 200_000 ? 1_000_000 : 200_000) }
+
+    private var fraction: Double { min(1, Double(tokens) / Double(limit)) }
+    private var tint: Color { fraction < 0.5 ? .green : fraction < 0.8 ? .orange : .red }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Capsule()
+                .fill(Color.primary.opacity(0.1))
+                .frame(width: compact ? 36 : 56, height: 5)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(tint).frame(width: max(3, (compact ? 36 : 56) * fraction), height: 5)
+                }
+            Text(Self.format(tokens))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .help("Circa \(Self.format(tokens)) token di contesto su \(Self.format(limit)) (\(Int(fraction * 100))%)")
+    }
+
+    static func format(_ tokens: Int) -> String {
+        tokens >= 1_000_000 ? String(format: "%.1fM", Double(tokens) / 1_000_000)
+            : tokens >= 1000 ? "\(tokens / 1000)k" : "\(tokens)"
+    }
+}

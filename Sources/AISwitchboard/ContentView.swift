@@ -2,11 +2,13 @@ import SwiftUI
 
 enum ChatScope: Hashable {
     case all
+    case working
     case context(String)
     case unassigned
 }
 
 enum DeckSection: Hashable {
+    case overview
     case chats(ChatScope)
     case areas
     case active
@@ -19,6 +21,7 @@ enum DeckSection: Hashable {
     init?(debugName: String) {
         switch debugName {
         case "compose": self = .compose
+        case "overview": self = .overview
         case "insights": self = .insights
         case "areas": self = .areas
         case "active": self = .active
@@ -42,8 +45,17 @@ struct ContentView: View {
             List(selection: $section) {
                 row("Nuova chat guidata", symbol: "sparkles", tint: Theme.coral)
                     .tag(DeckSection.compose)
+                let attention = store.activeSessions.filter { $0.status != "busy" }.count
+                row("Panoramica", symbol: "square.grid.2x2.fill", tint: .teal, count: attention > 0 ? attention : nil,
+                    highlight: attention > 0 ? .green : nil)
+                    .tag(DeckSection.overview)
+                    .help("Cosa ti aspetta: sessioni in attesa, chat ferme, chat da ricollegare o alleggerire")
 
                 Section("Chat") {
+                    let working = store.workingChats.count
+                    row("In lavorazione", symbol: "flag.fill", tint: .orange, count: working, highlight: working > 0 ? .orange : nil)
+                        .tag(DeckSection.chats(.working))
+                        .help("Le chat che stai seguendo adesso: le aggiungi e le togli tu (menu contestuale o dettaglio)")
                     row("Tutte", symbol: "bubble.left.and.bubble.right.fill", tint: Theme.coral, count: store.chats.count)
                         .tag(DeckSection.chats(.all))
                     ForEach(store.config.contexts, id: \.self) { context in
@@ -119,6 +131,11 @@ struct ContentView: View {
             }
         } detail: {
             switch section ?? .chats(.all) {
+            case .overview:
+                OverviewView(store: store) { id in
+                    focusedChatID = id
+                    section = .chats(.all)
+                }
             case .chats(let scope):
                 ChatsView(store: store, scope: scope, focusedChatID: $focusedChatID)
             case .areas:

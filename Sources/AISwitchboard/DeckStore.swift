@@ -316,6 +316,12 @@ final class DeckStore: ObservableObject {
 
     /// `model` nil: the recommended one when that option is on, otherwise Claude Code's default.
     func resume(_ chat: ChatSession, with account: ClaudeAccount, model: ModelTier? = nil) {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: chat.workingDirectory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            errorMessage = "Non riesco a riaprire “\(chat.displayTitle)”: la sua cartella \(chat.workingDirectory) non esiste più. "
+                + "Con “Sposta in…” collegala a una cartella che esiste, poi riprendila da lì."
+            return
+        }
         let tier = model ?? (useRecommendedModel ? recommendation(for: chat)?.tier : nil)
         handle(Launcher.resume(chat, account: account, model: tier?.alias))
     }
@@ -418,7 +424,7 @@ final class DeckStore: ObservableObject {
 
     /// Merges `ordered` (in the given order) into a new chat saved next to `target`, then moves
     /// the originals to the Trash. Returns the new chat, or nil on failure (originals untouched).
-    func merge(_ ordered: [ChatSession], title: String, target: ChatSession) -> ChatSession? {
+    func merge(_ ordered: [ChatSession], title: String, target: ChatSession) async -> ChatSession? {
         let active = activeSessionIDs
         if let busy = ordered.first(where: { active.contains($0.id) }) {
             errorMessage = ChatOperationError.active(busy.displayTitle).localizedDescription
@@ -426,13 +432,13 @@ final class DeckStore: ObservableObject {
         }
 
         let result: MergeEngine.Result
+        let folder = target.fileURL.deletingLastPathComponent()
+        let configDirs = accounts.map(\.configDir)
         do {
-            result = try MergeEngine.merge(
-                ordered,
-                title: title,
-                targetFolder: target.fileURL.deletingLastPathComponent(),
-                configDirs: accounts.map(\.configDir)
-            )
+            // Off the main thread: long chats take seconds to read, rewrite and verify.
+            result = try await Task.detached(priority: .userInitiated) {
+                try MergeEngine.merge(ordered, title: title, targetFolder: folder, cwd: target.workingDirectory, configDirs: configDirs)
+            }.value
         } catch {
             errorMessage = "Unione non riuscita, le chat originali non sono state toccate.\n\n\(error.localizedDescription)"
             return nil
@@ -627,6 +633,50 @@ final class DeckStore: ObservableObject {
     }
 
     /// `nil` resets the chat to its folder's context.
+    // MARK: - In lavorazione
+
+    func isWorking(_ chat: ChatSession) -> Bool { config.workingChats?.contains(chat.id) ?? false }
+
+    /// Chats marked in lavorazione that still exist, in the order they were marked.
+    var workingChats: [ChatSession] {
+        let byID = Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return (config.workingChats ?? []).compactMap { byID[$0] }
+    }
+
+    func setWorking(_ working: Bool, for chats: [ChatSession]) {
+        var list = config.workingChats ?? []
+        let ids = chats.map(\.id)
+        list.removeAll { ids.contains($0) }
+        if working { list.insert(contentsOf: ids, at: 0) }
+        config.workingChats = list
+        config.save()
+    }
+
+    /// Asks Claude (Haiku) for a short title from what the chat is about, and applies it.
+    func suggestTitle(for chat: ChatSession, account: ClaudeAccount?) async {
+        do {
+            let source = try await Task.detached { try SplitEngine.analyze(chat) }.value
+            let prompts = source.turns.prefix(40).map { "- " + String(cleanPromptText($0.prompt).prefix(200)) }.joined(separator: "\n")
+            let ending = source.turns.suffix(2).map { String($0.digest.prefix(1200)) }.joined(separator: "\n")
+            let answer = try await ClaudeAssistant.ask("""
+            Dai un titolo a questa conversazione tra un utente e Claude: in italiano, da 1 a 4 parole, concreto \
+            (progetto, sito, oggetto del lavoro), niente virgolette né punto finale. Rispondi SOLO con il titolo.
+
+            Richieste dell'utente:
+            \(prompts)
+
+            Ultimi scambi:
+            \(ending)
+            """, account: account)
+            let title = answer.split(separator: "\n").first.map(String.init)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \"“”'.*#")) ?? ""
+            guard !title.isEmpty, title.count <= 60 else { throw ChatOperationError.io("Titolo non valido: \(answer.prefix(80))") }
+            rename(chat, to: title)
+        } catch {
+            errorMessage = "Non sono riuscito a suggerire un titolo.\n\n\(error.localizedDescription)"
+        }
+    }
+
     func setContext(_ context: String?, for chats: [ChatSession]) {
         for chat in chats { config.chatContexts[chat.id] = context }
         config.save()

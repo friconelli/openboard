@@ -37,6 +37,7 @@ enum MergeEngine {
         _ sessions: [ChatSession],
         title: String,
         targetFolder: URL,
+        cwd: String? = nil,
         configDirs: [URL]
     ) throws -> Result {
         guard sessions.count >= 2 else { throw ChatOperationError.io("Servono almeno due chat") }
@@ -58,6 +59,11 @@ enum MergeEngine {
 
         for session in sessions {
             var lines = try load(session, newID: newID, newSideDir: newSideDir, sideDirAliases: sideDirAliases, sourceIDs: sourceIDs)
+            // Every message gets the merged chat's folder: `claude --resume` looks for the chat
+            // through it, and chats from other projects would otherwise point elsewhere.
+            if let cwd {
+                for index in lines.indices where lines[index].json["cwd"] != nil { lines[index].json["cwd"] = cwd }
+            }
             let chain = effectiveChain(lines)
             guard !chain.isEmpty else { continue }
 
@@ -87,7 +93,12 @@ enum MergeEngine {
 
             // Main messages are written exactly as the lines of the chain (a transcript can
             // contain rewritten copies of a message with a different parent).
-            let chainLines = Set(chain.filter { keep.contains(lines[$0].uuid!) })
+            var chainLines = Set(chain.filter { keep.contains(lines[$0].uuid!) })
+            let keptUUIDs = Set(chainLines.map { lines[$0].uuid! })
+            let siblings = parallelResults(lines.map(\.json), on: keptUUIDs)
+            for (index, line) in lines.enumerated() where line.uuid.map(siblings.contains) == true && !written.contains(line.uuid!) {
+                chainLines.insert(index)
+            }
             for (index, line) in lines.enumerated() {
                 if droppedTypes.contains(line.type) { continue }
                 if let uuid = line.uuid {
@@ -183,6 +194,26 @@ enum MergeEngine {
         return chain.reversed()
     }
 
+    // MARK: - Parallel tool results
+
+    /// uuids of the results of parallel tool calls made on `chain`. When Claude answers with
+    /// several tool calls at once, each call is its own line chained after the previous one, and
+    /// the result of every call but the last is written as a sibling branch (parent: its call),
+    /// off the main chain. Claude Code reattaches them on resume; anything that walks only the
+    /// chain must carry them along or those results are lost.
+    static func parallelResults(_ records: [[String: Any]], on chain: Set<String>) -> Set<String> {
+        var result: Set<String> = []
+        for json in records {
+            guard json["type"] as? String == "user", json["isSidechain"] as? Bool != true,
+                  let uuid = json["uuid"] as? String, !chain.contains(uuid),
+                  let parent = json["parentUuid"] as? String, chain.contains(parent),
+                  let blocks = (json["message"] as? [String: Any])?["content"] as? [[String: Any]],
+                  !blocks.isEmpty, blocks.allSatisfy({ $0["type"] as? String == "tool_result" }) else { continue }
+            result.insert(uuid)
+        }
+        return result
+    }
+
     // MARK: - Writing and verification
 
     static func write(_ records: [[String: Any]], to url: URL) throws {
@@ -225,7 +256,9 @@ enum MergeEngine {
             count += 1
             current = parent
         }
-        guard count == order.count else {
+        let records = data.split(separator: 0x0A).compactMap { (try? JSONSerialization.jsonObject(with: Data($0))) as? [String: Any] }
+        let parallel = parallelResults(records, on: seen)
+        guard count + parallel.count == order.count else {
             throw ChatOperationError.io("Verifica fallita: \(order.count - count) messaggi fuori dalla conversazione")
         }
         return count

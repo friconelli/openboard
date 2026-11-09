@@ -272,14 +272,26 @@ struct SplitSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(1...3)
-            Button {
-                if isOpen { expanded.remove(id) } else { expanded.insert(id) }
-            } label: {
-                Label("\(own.count) \(own.count == 1 ? "turno" : "turni")", systemImage: isOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption)
+            HStack(spacing: 10) {
+                Button {
+                    if isOpen { expanded.remove(id) } else { expanded.insert(id) }
+                } label: {
+                    Label("\(own.count) \(own.count == 1 ? "turno" : "turni")", systemImage: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                if let source, !own.isEmpty {
+                    let fitted = SplitEngine.fit(own.map(\.id), in: source)
+                    ContextMeter(tokens: SplitEngine.tokens(of: fitted.kept, in: source), compact: true)
+                    if !fitted.archived.isEmpty {
+                        Label("i primi \(fitted.archived.count) turni solo nel riassunto", systemImage: "archivebox")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .help("Tutti insieme supererebbero \(SplitEngine.contextBudget / 1000)k token: la chat sarebbe compattata (o rifiutata) appena ripresa. I turni più vecchi restano nella chat originale e la nuova chat parte da un riassunto più dettagliato che li copre.")
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
             if isOpen {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(own) { turn in turnRow(turn) }
@@ -562,12 +574,15 @@ struct SplitSheet: View {
         }
 
         Task {
-            if addSummary {
-                status = "Claude scrive i riassunti (0/\(plan.count))…"
+            // Topics too large for one chat always get a summary: it is what covers their older turns.
+            let needing = plan.indices.filter { addSummary || !SplitEngine.fit(plan[$0].turns, in: source).archived.isEmpty }
+            if !needing.isEmpty {
+                status = "Claude scrive i riassunti (0/\(needing.count))…"
                 do {
                     var done = 0
                     try await withThrowingTaskGroup(of: (Int, String).self) { group in
-                        for (index, topic) in plan.enumerated() {
+                        for index in needing {
+                            let topic = plan[index]
                             group.addTask {
                                 (index, try await ClaudeAssistant.summary(of: source, topic: topic.title, turns: topic.turns, account: account))
                             }
@@ -575,7 +590,7 @@ struct SplitSheet: View {
                         for try await (index, summary) in group {
                             plan[index].summary = summary
                             done += 1
-                            status = "Claude scrive i riassunti (\(done)/\(plan.count))…"
+                            status = "Claude scrive i riassunti (\(done)/\(needing.count))…"
                         }
                     }
                 } catch {

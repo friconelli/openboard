@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "AISwitchboard",
             path: "Sources/AISwitchboard"
-        )
+        ),
+        .testTarget(
+            name: "AISwitchboardTests",
+            dependencies: ["AISwitchboard"],
+            path: "Tests/AISwitchboardTests"
+        ),
     ]
 )

@@ -29,6 +29,7 @@ struct ChatsView: View {
         store.chats.filter { chat in
             switch scope {
             case .all: break
+            case .working: if !store.isWorking(chat) { return false }
             case .context(let context): if store.context(for: chat) != context { return false }
             case .unassigned: if store.context(for: chat) != nil { return false }
             }
@@ -148,7 +149,9 @@ struct ChatsView: View {
                             showContext: scope == .all,
                             isActive: store.activeSessionIDs.contains(chat.id),
                             hasAdvice: store.hasAdvice(for: chat),
-                            description: store.description(for: chat)
+                            description: store.description(for: chat),
+                            isWorking: store.isWorking(chat),
+                            contextTokens: store.contextTokens(for: chat)
                         )
                         .tag(chat.id)
                         .contextMenu { contextMenu(for: chat) }
@@ -242,6 +245,10 @@ struct ChatsView: View {
                 }
             }
             Button("Rinomina…") { renameTarget = chat }
+            Button("Suggerisci titolo con Claude") {
+                Task { await store.suggestTitle(for: chat, account: store.preferredAccount) }
+            }
+            .disabled(chat.promptCount == 0)
             Button("Dividi in argomenti…") { splitTarget = chat }
             Button("Rigenera descrizione") { store.refreshDescriptions(force: [chat]) }
             Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
@@ -254,6 +261,11 @@ struct ChatsView: View {
         }
         Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { slimTargets = targets }
         Divider()
+        if targets.allSatisfy(store.isWorking) {
+            Button("Togli da In lavorazione") { store.setWorking(false, for: targets) }
+        } else {
+            Button("Segna in lavorazione") { store.setWorking(true, for: targets) }
+        }
         Button("Sposta in…") { moveTargets = targets }
         Menu("Contesto") { contextItems(for: targets) }
         Divider()
@@ -272,6 +284,7 @@ struct ChatsView: View {
     private var scopeTitle: String {
         switch scope {
         case .all: return "Tutte le chat"
+        case .working: return "In lavorazione"
         case .context(let context): return context
         case .unassigned: return "Da assegnare"
         }
@@ -335,6 +348,8 @@ private struct ChatRow: View {
     let isActive: Bool
     let hasAdvice: Bool
     let description: String?
+    let isWorking: Bool
+    let contextTokens: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -342,6 +357,12 @@ private struct ChatRow: View {
                 if isActive {
                     StatusDot(busy: false)
                         .help("Aperta in una sessione in corso")
+                }
+                if isWorking {
+                    Image(systemName: "flag.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .help("In lavorazione")
                 }
                 Text(chat.displayTitle)
                     .font(.headline)
@@ -380,9 +401,13 @@ private struct ChatRow: View {
                     AccountBadge(account: account, compact: true)
                 }
                 Spacer()
-                Text(formatBytes(chat.sizeBytes))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                if contextTokens > 0 {
+                    ContextMeter(tokens: contextTokens, compact: true)
+                } else {
+                    Text(formatBytes(chat.sizeBytes))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -508,7 +533,8 @@ private struct MergeSheet: View {
     @State private var isMerging = false
 
     private var target: ChatSession? { ordered.first { $0.id == targetID } ?? ordered.first }
-    private var totalSize: Int64 { chats.reduce(0) { $0 + $1.sizeBytes } }
+    /// Context each chat reloads on resume, as Claude Code last measured it; the merged chat holds them all.
+    private var contextTotal: Int { chats.reduce(0) { $0 + store.contextTokens(for: $1) } }
     private var projectChoices: [ChatSession] {
         var seen: Set<String> = []
         return ordered.filter { seen.insert($0.projectDir).inserted }
@@ -584,9 +610,18 @@ private struct MergeSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Dopo l'unione le \(chats.count) chat originali vanno nel Cestino: resta solo quella unita.", systemImage: "trash")
                 Label("Viene ripresa la conversazione effettiva di ogni chat; se una era compattata entra il suo riassunto. I messaggi ripetuti tra chat derivate compaiono una volta sola.", systemImage: "info.circle")
-                if totalSize > 20_000_000 {
-                    Label("Totale \(formatBytes(totalSize)): alla ripresa Claude Code potrebbe compattare il contesto.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                if contextTotal > 0 {
+                    HStack(spacing: 6) {
+                        Text("Contesto della chat unita, circa")
+                        ContextMeter(tokens: contextTotal)
+                    }
+                    if contextTotal > 160_000 {
+                        Label(contextTotal > 800_000
+                              ? "Oltre l'80% anche di una finestra da 1M: alla ripresa Claude Code compatterà subito la conversazione. Conviene prima snellire le chat più pesanti."
+                              : "Con un modello da 200k alla ripresa Claude Code compatterà subito la conversazione (con uno da 1M no). Snellire prima le chat più pesanti aiuta comunque.",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
             .font(.caption)
@@ -626,13 +661,15 @@ private struct MergeSheet: View {
         guard let target else { return }
         isMerging = true
         let name = title.trimmingCharacters(in: .whitespaces)
-        let merged = store.merge(ordered, title: name, target: target)
-        isMerging = false
-        guard let merged else { return }
-        if openAfter, let account = accountID.flatMap(store.account(id:)) {
-            store.resume(merged, with: account)
+        Task {
+            let merged = await store.merge(ordered, title: name, target: target)
+            isMerging = false
+            guard let merged else { return }
+            if openAfter, let account = accountID.flatMap(store.account(id:)) {
+                store.resume(merged, with: account)
+            }
+            onDone(merged.id)
+            dismiss()
         }
-        onDone(merged.id)
-        dismiss()
     }
 }

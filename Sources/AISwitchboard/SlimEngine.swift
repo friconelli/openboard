@@ -250,6 +250,9 @@ enum SlimEngine {
         var plan = Plan()
         let lines = source.lines
         let fullSet = Set(source.fullChain)
+        // Results of parallel tool calls hang off the chain as siblings, not on it: Claude Code
+        // reattaches them on resume, so they are part of the conversation, not undone branches.
+        let parallel = MergeEngine.parallelResults(lines.map(\.json), on: fullSet)
 
         func credit(_ category: Category, bytes: Int, tokens: Int = 0) {
             plan.savings[category, default: Saving()].bytes += bytes
@@ -279,7 +282,7 @@ enum SlimEngine {
                     continue
                 }
                 guard line.isMain, let uuid = line.uuid, !source.protected.contains(uuid) else { continue }
-                if !fullSet.contains(uuid) {
+                if !fullSet.contains(uuid) && !parallel.contains(uuid) {
                     drop(i, .technical)
                 } else if line.type == "attachment",
                           let kind = (line.json["attachment"] as? [String: Any])?["type"] as? String,
@@ -293,6 +296,7 @@ enum SlimEngine {
 
         if enabled.contains(.compacted), source.hasCompaction {
             var kept: Set<String> = source.effective.union(source.protected)
+                .union(MergeEngine.parallelResults(lines.map(\.json), on: source.effective))
             for (i, line) in lines.enumerated() where line.isMain && !kept.contains(line.uuid!) {
                 drop(i, .compacted)
             }
@@ -494,7 +498,7 @@ enum SlimEngine {
     }
 
     /// Rough tokens a line adds to Claude's context: text at ~4 characters per token, images flat.
-    private static func contextTokens(_ json: [String: Any]) -> Int {
+    static func contextTokens(_ json: [String: Any]) -> Int {
         switch json["type"] as? String {
         case "attachment":
             let attachment = json["attachment"] as? [String: Any] ?? [:]

@@ -19,6 +19,33 @@ enum SplitEngine {
         let messageCount: Int
         /// Prompt plus Claude's text replies, shortened, for summaries.
         let digest: String
+        /// Rough tokens this turn adds to Claude's context when the chat is resumed.
+        let tokens: Int
+    }
+
+    /// Most context a new chat may reload on resume. Above this the oldest turns of a topic are
+    /// left out of the chat and covered by its summary instead: a chat split from a long history
+    /// (compactions included) could otherwise be larger than Claude's context window and be
+    /// compacted, or refused, the moment it is resumed.
+    static let contextBudget = 140_000
+
+    /// The turns of a topic that are written as messages (the most recent ones within the
+    /// budget) and the older ones that only the summary covers.
+    static func fit(_ turns: [Int], in source: Source) -> (kept: [Int], archived: [Int]) {
+        let sorted = turns.filter { source.turns.indices.contains($0) }.sorted()
+        var total = 0
+        var firstKept = sorted.count
+        for position in sorted.indices.reversed() {
+            total += source.turns[sorted[position]].tokens
+            // The latest turn is always kept, however large.
+            if total > contextBudget && position < sorted.count - 1 { break }
+            firstKept = position
+        }
+        return (Array(sorted[firstKept...]), Array(sorted[..<firstKept]))
+    }
+
+    static func tokens(of turns: [Int], in source: Source) -> Int {
+        turns.reduce(0) { $0 + (source.turns.indices.contains($1) ? source.turns[$1].tokens : 0) }
     }
 
     struct Topic: Sendable {
@@ -47,14 +74,17 @@ enum SplitEngine {
         let chat: ChatSession
         let turns: [Turn]
         fileprivate let lines: [Line]
-        /// Chain line indexes of each turn.
+        /// Line indexes of each turn: the chain, plus parallel tool results after their call.
         fileprivate let turnLines: [[Int]]
+        /// Parallel tool results: written with their own parent, outside the re-chaining.
+        fileprivate let siblingLines: Set<Int>
 
-        fileprivate init(chat: ChatSession, turns: [Turn], lines: [Line], turnLines: [[Int]]) {
+        fileprivate init(chat: ChatSession, turns: [Turn], lines: [Line], turnLines: [[Int]], siblingLines: Set<Int>) {
             self.chat = chat
             self.turns = turns
             self.lines = lines
             self.turnLines = turnLines
+            self.siblingLines = siblingLines
         }
     }
 
@@ -82,12 +112,20 @@ enum SplitEngine {
         }
 
         let chain = fullChain(lines)
+        // Results of parallel tool calls sit off the chain, next to their call: they go in the
+        // same turn, right after it, and keep their parent when the turn is re-chained.
+        let parallel = MergeEngine.parallelResults(lines.map(\.json), on: Set(chain.compactMap { lines[$0].uuid }))
+        var siblingsByParent: [String: [Int]] = [:]
+        for (index, line) in lines.enumerated() where line.uuid.map(parallel.contains) == true {
+            siblingsByParent[line.json["parentUuid"] as? String ?? "", default: []].append(index)
+        }
         var turnLines: [[Int]] = []
         for index in chain {
+            let group = [index] + (lines[index].uuid.flatMap { siblingsByParent[$0] } ?? [])
             if isPrompt(lines[index]) || turnLines.isEmpty {
-                turnLines.append([index])
+                turnLines.append(group)
             } else {
-                turnLines[turnLines.count - 1].append(index)
+                turnLines[turnLines.count - 1].append(contentsOf: group)
             }
         }
         // Lines before the first prompt (hooks, attachments) belong to the first turn.
@@ -100,7 +138,8 @@ enum SplitEngine {
         let turns = turnLines.enumerated().map { id, indexes in
             makeTurn(id: id, lines: indexes.map { lines[$0] })
         }
-        return Source(chat: chat, turns: turns, lines: lines, turnLines: turnLines)
+        return Source(chat: chat, turns: turns, lines: lines, turnLines: turnLines,
+                      siblingLines: Set(siblingsByParent.values.joined()))
     }
 
     /// Main-chain line indexes from root to leaf across compactions, without boundaries and summaries.
@@ -151,7 +190,9 @@ enum SplitEngine {
         var prompt = ""
         var replies: [String] = []
         var messages = 0
+        var tokens = 0
         for line in lines {
+            tokens += SlimEngine.contextTokens(line.json)
             guard let message = line.json["message"] as? [String: Any] else { continue }
             if line.type == "user" || line.type == "assistant" { messages += 1 }
             let texts: [String]
@@ -173,7 +214,7 @@ enum SplitEngine {
         let reply = replies.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         let digest = "UTENTE: \(prompt.prefix(1200))\nCLAUDE: \(reply.prefix(1200))"
         let date = (lines.first?.json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
-        return Turn(id: id, prompt: prompt.isEmpty ? "(senza testo)" : prompt, timestamp: date, messageCount: messages, digest: digest)
+        return Turn(id: id, prompt: prompt.isEmpty ? "(senza testo)" : prompt, timestamp: date, messageCount: messages, digest: digest, tokens: tokens)
     }
 
     private static func readablePrompt(_ text: String) -> String {
@@ -202,12 +243,16 @@ enum SplitEngine {
             let sideDir: URL
             let topic: Topic
             let count: Int
+            let promptCount: Int
         }
         var pending: [Pending] = []
         func discard() { for item in pending { try? fm.removeItem(at: item.temp) } }
 
         for topic in topics {
-            let turns = topic.turns.filter { source.turnLines.indices.contains($0) }.sorted()
+            let fitted = fit(topic.turns, in: source)
+            // Older turns beyond the budget are dropped only when a summary covers them.
+            let hasSummary = topic.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            let turns = hasSummary ? fitted.kept : fitted.archived + fitted.kept
             guard !turns.isEmpty else { continue }
 
             let newID = UUID().uuidString.lowercased()
@@ -221,7 +266,7 @@ enum SplitEngine {
                 let records = buildRecords(source, turns: turns, topic: topic, newID: newID, sideDir: sideDir, aliases: aliases)
                 try MergeEngine.write(records, to: temp)
                 let count = try MergeEngine.verify(temp)
-                pending.append(Pending(id: newID, temp: temp, final: targetDir.appendingPathComponent("\(newID).jsonl"), sideDir: sideDir, topic: topic, count: count))
+                pending.append(Pending(id: newID, temp: temp, final: targetDir.appendingPathComponent("\(newID).jsonl"), sideDir: sideDir, topic: topic, count: count, promptCount: turns.count))
             } catch {
                 try? fm.removeItem(at: temp)
                 discard()
@@ -250,7 +295,7 @@ enum SplitEngine {
                 description: item.topic.description?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty,
                 folder: item.topic.folder,
                 messageCount: item.count,
-                promptCount: item.topic.turns.filter { source.turnLines.indices.contains($0) }.count
+                promptCount: item.promptCount
             ))
         }
         return results
@@ -282,9 +327,14 @@ enum SplitEngine {
         for turn in turns {
             for index in source.turnLines[turn] {
                 guard var json = reparse(source.lines[index], chat: chat, sideDir: sideDir, aliases: aliases) else { continue }
-                json["parentUuid"] = previous.map { $0 as Any } ?? NSNull()
                 json["sessionId"] = newID
                 if json["cwd"] != nil { json["cwd"] = topic.folder }
+                if source.siblingLines.contains(index) {
+                    included.insert(json["uuid"] as? String ?? "")
+                    records.append(json)
+                    continue
+                }
+                json["parentUuid"] = previous.map { $0 as Any } ?? NSNull()
                 previous = json["uuid"] as? String
                 included.insert(previous ?? "")
                 records.append(json)
@@ -492,22 +542,28 @@ enum ClaudeAssistant {
 
     /// Context summary to put at the start of a topic's chat.
     static func summary(of source: SplitEngine.Source, topic: String, turns: [Int], account: ClaudeAccount?) async throws -> String {
-        let kept = Set(turns)
+        let fitted = SplitEngine.fit(turns, in: source)
+        let kept = Set(fitted.kept)
+        let archived = Set(fitted.archived)
         // Keep the transcript within a comfortable size: long chats get shorter excerpts per turn.
         let perTurn = max(300, 160_000 / max(1, source.turns.count))
         let parts = source.turns.map { turn in
-            let marker = kept.contains(turn.id) ? " [IN QUESTO ARGOMENTO]" : ""
+            let marker = kept.contains(turn.id) ? " [IN QUESTO ARGOMENTO]"
+                : archived.contains(turn.id) ? " [IN QUESTO ARGOMENTO, SOLO NEL RIASSUNTO]" : ""
             return "#\(turn.id)\(marker)\n\(turn.digest.prefix(perTurn))"
         }
+        let archivedNote = archived.isEmpty ? "" : " I turni marcati [IN QUESTO ARGOMENTO, SOLO NEL RIASSUNTO] "
+            + "appartengono all'argomento ma non entrano nella chat (sarebbe troppo lunga): il riassunto è l'unica "
+            + "traccia che ne resta, quindi riportane con cura risultati, decisioni, file e percorsi."
         let prompt = """
         Una lunga conversazione tra un utente e Claude (assistente di programmazione e lavoro) viene divisa in \
         più chat, una per argomento. Questa nuova chat riguarda l'argomento “\(topic)” e conterrà solo i turni \
-        marcati [IN QUESTO ARGOMENTO].
+        marcati [IN QUESTO ARGOMENTO].\(archivedNote)
 
         Scrivi un riassunto, in italiano, del contesto della conversazione originale utile a proseguire questo \
         argomento: obiettivo, decisioni prese, file, percorsi, comandi e configurazioni coinvolti, stato attuale \
         e cose rimaste aperte. Includi quello che è emerso negli altri argomenti solo se serve a capire questo. \
-        Usa elenchi puntati, massimo 400 parole, nessuna introduzione.
+        Usa elenchi puntati, massimo \(archived.isEmpty ? 400 : 900) parole, nessuna introduzione.
 
         Conversazione:
         \(parts.joined(separator: "\n\n"))

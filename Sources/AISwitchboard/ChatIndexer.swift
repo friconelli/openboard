@@ -12,7 +12,7 @@ final class ChatIndexer {
 
     private var cache: [String: CacheEntry] = [:]
     // Bump the version when indexing rules change, so every transcript is re-indexed.
-    private let cacheURL = ClaudePaths.appSupport.appendingPathComponent("index-cache-v3.json")
+    private let cacheURL = ClaudePaths.appSupport.appendingPathComponent("index-cache-v4.json")
 
     init() {
         if let data = try? Data(contentsOf: cacheURL),
@@ -80,6 +80,17 @@ final class ChatIndexer {
     private static let textBlockNeedle = Array(#""type":"text""#.utf8)
     private static let toolResultNeedle = Array(#""tool_result""#.utf8)
 
+    /// The folder above `path` (or `path` itself) whose encoded name is `projectDir`: a chat
+    /// started in ~/projects whose messages all ran in a subfolder is stored under ~/projects.
+    static func ancestor(of path: String, encodedAs projectDir: String) -> String? {
+        var url = URL(fileURLWithPath: path)
+        while url.path != "/" {
+            if Workspaces.encodedName(for: url.path) == projectDir { return url.path }
+            url.deleteLastPathComponent()
+        }
+        return nil
+    }
+
     static func index(file: URL, projectDir: String, size: Int64, modified: Date) -> ChatSession? {
         guard let data = try? Data(contentsOf: file, options: .alwaysMapped) else { return nil }
         var session = ChatSession(
@@ -91,6 +102,9 @@ final class ChatIndexer {
         )
         var aiTitle: String?
         var customTitle: String?
+        var firstCwd: String?
+        var matchingCwd: String?
+        var lastCheckedCwd: String?
 
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             guard let base = raw.baseAddress else { return }
@@ -105,8 +119,16 @@ final class ChatIndexer {
                     aiTitle = json["aiTitle"] as? String ?? aiTitle
                     return
                 }
-                if session.cwd == nil, let cwd = stringValue(after: cwdNeedle, in: line, length) {
-                    session.cwd = cwd
+                // `claude --resume` finds a chat through the folder it is started in, so the folder to
+                // use is the cwd that encodes to the transcript's project folder. A chat can hold
+                // several (Claude `cd`-ing elsewhere, chats merged from other projects): the first
+                // one is only a fallback.
+                if matchingCwd == nil, let cwd = stringValue(after: cwdNeedle, in: line, length) {
+                    if firstCwd == nil { firstCwd = cwd }
+                    if cwd != lastCheckedCwd {
+                        lastCheckedCwd = cwd
+                        if Workspaces.encodedName(for: cwd) == projectDir { matchingCwd = cwd }
+                    }
                 }
                 if session.startedAt == nil, let ts = stringValue(after: timestampNeedle, in: line, length) {
                     session.startedAt = isoFormatter.date(from: ts)
@@ -134,6 +156,7 @@ final class ChatIndexer {
         }
 
         session.title = customTitle ?? aiTitle
+        session.cwd = matchingCwd ?? firstCwd.flatMap { ancestor(of: $0, encodedAs: projectDir) } ?? firstCwd
         session.isCustomTitle = customTitle != nil
         return session
     }
