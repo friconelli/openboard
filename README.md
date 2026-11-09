@@ -40,6 +40,25 @@ Per pubblicare una versione: `Scripts/release.sh 1.2.0 "Note di rilascio"` (impo
 - **Account**: email, piano, modello, plugin, prompt di oggi, ultimo uso, stato dello storico condiviso; nuova chat in una cartella a scelta.
 - **Memoria**: file `memory/*.md` per progetto, modificabili e salvabili.
 
+## Layout
+
+A sinistra la lista delle chat con filtro, ricerca e consumo del piano; al centro la chat aperta; a destra la barra delle pagine (Panoramica, Nuova chat guidata, Consigli, Attività, Aree di lavoro, Memoria, Sessioni attive, Account).
+
+## Chat dentro l'app
+
+- **Claude Code** in modalità headless: risposte in streaming, schede degli strumenti, permessi da approvare, interruzione, scelta di modalità, modello e account. **Codex** con `codex exec --json` e scelta della sandbox.
+- Risposte formattate (titoli, elenchi, tabelle, codice con *Copia*), immagini e file allegati, messaggi in coda mentre l'agente lavora, bozze salvate per chat.
+- Tasto destro su un messaggio: **Biforca fino a qui** o **Riparti da questo messaggio** (solo Claude; l'originale non cambia).
+- **File** modificati con le differenze, pannello **Git** (commit con messaggio scritto da Claude, push, pull), **Terminale** nella cartella della chat (⌘J), esportazione in Markdown.
+
+## Altre funzioni
+
+- **Codex**: le sessioni di `~/.codex/sessions` compaiono nella lista, si riprendono con `codex resume` e hanno i limiti del piano nel pannello. Unisci, Dividi, Snellisci e Sposta valgono solo per Claude Code.
+- **Consumo del piano** per account (5 ore e settimana, tempo al reset, previsione del ritmo) da `/usage`, che non consuma messaggi. Con un account Claude oltre il 95% la chat in app passa da sola a quello con più margine (disattivabile da *Vista*).
+- **Attività programmate**: messaggi a Claude o Codex a orari fissi tramite launchd, anche ad app chiusa; registri in `~/.openboard/tasks`.
+- **Archivio**: nasconde le chat dalle liste senza toccare i file, con pulizia automatica opzionale.
+- **Notifiche** quando l'agente finisce o chiede un permesso.
+
 ## Contesti e aree di lavoro
 
 - **Contesti** (scelti nella configurazione guidata, es. Personale, Lavoro): indipendenti dagli account. Il contesto di una chat si ricava dalla sua cartella: le aree in `<cartella chat>/<contesto>/` appartengono a quel contesto, i progetti nella cartella dei progetti hanno un contesto assegnabile (con un predefinito facoltativo), il resto è “Da assegnare”. Si può forzare il contesto di singole chat.

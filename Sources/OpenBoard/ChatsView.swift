@@ -1,23 +1,32 @@
 import SwiftUI
 import AppKit
 
+/// List state shared by the chat list (left column) and the open chat (centre).
+@MainActor
+final class ChatsUI: ObservableObject {
+    @Published var selection: Set<String> = []
+    @Published var query = ""
+    @Published var searchContent = false
+    @Published var projectFilter: String?
+    @Published var accountFilter: String?
+    @Published var renameTarget: ChatSession?
+    @Published var mergeTargets: [ChatSession] = []
+    @Published var trashTargets: [ChatSession] = []
+    @Published var moveTargets: [ChatSession] = []
+    @Published var splitTarget: ChatSession?
+    @Published var slimTargets: [ChatSession] = []
+}
+
 struct ChatsView: View {
+    enum Mode { case list, detail }
+
     @ObservedObject var store: DeckStore
     let scope: ChatScope
     @Binding var focusedChatID: String?
+    @ObservedObject var ui: ChatsUI
+    var mode: Mode = .list
 
-    @State private var selection: Set<String> = []
-    @State private var query = ""
-    @State private var searchContent = false
-    @State private var projectFilter: String?
-    @State private var accountFilter: String?
 
-    @State private var renameTarget: ChatSession?
-    @State private var mergeTargets: [ChatSession] = []
-    @State private var trashTargets: [ChatSession] = []
-    @State private var moveTargets: [ChatSession] = []
-    @State private var splitTarget: ChatSession?
-    @State private var slimTargets: [ChatSession] = []
 
     private var projects: [(dir: String, count: Int)] {
         Dictionary(grouping: store.visibleChats, by: \.projectDir)
@@ -34,95 +43,100 @@ struct ChatsView: View {
             case .context(let context): if store.context(for: chat) != context { return false }
             case .unassigned: if store.context(for: chat) != nil { return false }
             }
-            if let projectFilter, chat.projectDir != projectFilter { return false }
-            if let accountFilter, !(store.sessionAccounts[chat.id]?.contains(accountFilter) ?? false) { return false }
-            guard !query.isEmpty else { return true }
-            if searchContent { return store.contentMatches?.contains(chat.id) ?? true }
-            return chat.displayTitle.localizedCaseInsensitiveContains(query)
-                || (chat.preview?.localizedCaseInsensitiveContains(query) ?? false)
-                || (store.description(for: chat)?.localizedCaseInsensitiveContains(query) ?? false)
-                || chat.projectName.localizedCaseInsensitiveContains(query)
-                || chat.id.hasPrefix(query)
+            if let projectFilter = ui.projectFilter, chat.projectDir != projectFilter { return false }
+            if let accountFilter = ui.accountFilter, !(store.sessionAccounts[chat.id]?.contains(accountFilter) ?? false) { return false }
+            guard !ui.query.isEmpty else { return true }
+            if ui.searchContent { return store.contentMatches?.contains(chat.id) ?? true }
+            return chat.displayTitle.localizedCaseInsensitiveContains(ui.query)
+                || (chat.preview?.localizedCaseInsensitiveContains(ui.query) ?? false)
+                || (store.description(for: chat)?.localizedCaseInsensitiveContains(ui.query) ?? false)
+                || chat.projectName.localizedCaseInsensitiveContains(ui.query)
+                || chat.id.hasPrefix(ui.query)
         }
     }
 
     private var selectedChats: [ChatSession] {
-        store.chats.filter { selection.contains($0.id) }
+        store.chats.filter { ui.selection.contains($0.id) }
     }
 
     var body: some View {
-        HSplitView {
-            listPane
-                .frame(minWidth: 380, idealWidth: 460, maxWidth: 620)
+        if mode == .detail {
             detailPane
-                .frame(minWidth: 420, maxWidth: .infinity)
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                .navigationTitle(selectedChats.count == 1 ? selectedChats[0].displayTitle : scopeTitle)
+                .toolbar { toolbar }
+        } else {
+            listBody
         }
-        .navigationTitle(scopeTitle)
-        .toolbar { toolbar }
+    }
+
+    /// The list with everything it owns: dialogs, focus handling, content search.
+    private var listBody: some View {
+        listPane
         .onChange(of: focusedChatID) { _, id in
             guard let id else { return }
-            selection = [id]
+            ui.selection = [id]
             // Screenshots/tests: `-debugOpenSlim YES` opens the slim sheet for the focused chat.
             if UserDefaults.standard.bool(forKey: "debugOpenSlim"), let chat = store.chats.first(where: { $0.id == id }) {
-                slimTargets = [chat]
+                ui.slimTargets = [chat]
             }
             if UserDefaults.standard.bool(forKey: "debugOpenSplit"), let chat = store.chats.first(where: { $0.id == id }) {
-                splitTarget = chat
+                ui.splitTarget = chat
             }
             if UserDefaults.standard.bool(forKey: "debugOpenMove"), let chat = store.chats.first(where: { $0.id == id }) {
-                moveTargets = [chat]
+                ui.moveTargets = [chat]
             }
-            projectFilter = nil
-            accountFilter = nil
-            query = ""
+            ui.projectFilter = nil
+            ui.accountFilter = nil
+            ui.query = ""
             focusedChatID = nil
         }
-        .onChange(of: query) { _, value in
-            if searchContent { store.searchContent(value) }
+        .onChange(of: ui.query) { _, value in
+            if ui.searchContent { store.searchContent(value) }
         }
-        .onChange(of: searchContent) { _, enabled in
-            store.searchContent(enabled ? query : "")
+        .onChange(of: ui.searchContent) { _, enabled in
+            store.searchContent(enabled ? ui.query : "")
         }
-        .sheet(isPresented: Binding(get: { !moveTargets.isEmpty }, set: { if !$0 { moveTargets = [] } })) {
+        .sheet(isPresented: Binding(get: { !ui.moveTargets.isEmpty }, set: { if !$0 { ui.moveTargets = [] } })) {
             FolderPickerSheet(
                 store: store,
-                title: moveTargets.count == 1 ? "Sposta “\(moveTargets[0].displayTitle)”" : "Sposta \(moveTargets.count) chat",
+                title: ui.moveTargets.count == 1 ? "Sposta “\(ui.moveTargets[0].displayTitle)”" : "Sposta \(ui.moveTargets.count) chat",
                 message: "La chat verrà registrata nella nuova cartella: da lì la ritrovi con /resume e Claude lavora in quella cartella.",
-                excluding: Set(moveTargets.map(\.workingDirectory))
+                excluding: Set(ui.moveTargets.map(\.workingDirectory))
             ) { folder in
-                let targets = moveTargets
-                selection.subtract(targets.map(\.id))
+                let targets = ui.moveTargets
+                ui.selection.subtract(targets.map(\.id))
                 store.move(targets, to: folder)
             }
         }
-        .sheet(item: $renameTarget) { chat in
+        .sheet(item: $ui.renameTarget) { chat in
             RenameSheet(chat: chat) { title in
                 store.rename(chat, to: title)
             }
         }
-        .sheet(isPresented: Binding(get: { !slimTargets.isEmpty }, set: { if !$0 { slimTargets = [] } })) {
-            SlimSheet(store: store, chats: slimTargets)
+        .sheet(isPresented: Binding(get: { !ui.slimTargets.isEmpty }, set: { if !$0 { ui.slimTargets = [] } })) {
+            SlimSheet(store: store, chats: ui.slimTargets)
         }
-        .sheet(item: $splitTarget) { chat in
+        .sheet(item: $ui.splitTarget) { chat in
             SplitSheet(store: store, chat: chat) { created in
-                selection = Set(created.map(\.id))
+                ui.selection = Set(created.map(\.id))
             }
         }
-        .sheet(isPresented: Binding(get: { !mergeTargets.isEmpty }, set: { if !$0 { mergeTargets = [] } })) {
-            MergeSheet(store: store, chats: mergeTargets) { newID in
-                if let newID { selection = [newID] }
+        .sheet(isPresented: Binding(get: { !ui.mergeTargets.isEmpty }, set: { if !$0 { ui.mergeTargets = [] } })) {
+            MergeSheet(store: store, chats: ui.mergeTargets) { newID in
+                if let newID { ui.selection = [newID] }
             }
         }
         .alert(
-            "Spostare \(trashTargets.count) chat nel Cestino?",
-            isPresented: Binding(get: { !trashTargets.isEmpty }, set: { if !$0 { trashTargets = [] } })
+            "Spostare \(ui.trashTargets.count) chat nel Cestino?",
+            isPresented: Binding(get: { !ui.trashTargets.isEmpty }, set: { if !$0 { ui.trashTargets = [] } })
         ) {
             Button("Sposta nel Cestino", role: .destructive) {
-                store.trash(trashTargets)
-                selection.subtract(trashTargets.map(\.id))
-                trashTargets = []
+                store.trash(ui.trashTargets)
+                ui.selection.subtract(ui.trashTargets.map(\.id))
+                ui.trashTargets = []
             }
-            Button("Annulla", role: .cancel) { trashTargets = [] }
+            Button("Annulla", role: .cancel) { ui.trashTargets = [] }
         } message: {
             Text("Le potrai recuperare dal Cestino finché non lo svuoti. Spariranno da /resume per tutti gli account.")
         }
@@ -162,11 +176,11 @@ struct ChatsView: View {
             if filtered.isEmpty && !store.isIndexing {
                 EmptyStateView(
                     symbol: "bubble.left.and.bubble.right",
-                    title: query.isEmpty ? "Nessuna chat" : "Nessun risultato",
-                    message: query.isEmpty ? nil : "Prova a cercare anche nel contenuto delle conversazioni."
+                    title: ui.query.isEmpty ? "Nessuna chat" : "Nessun risultato",
+                    message: ui.query.isEmpty ? nil : "Prova a cercare anche nel contenuto delle conversazioni."
                 )
             } else {
-                List(selection: $selection) {
+                List(selection: $ui.selection) {
                     ForEach(filtered) { chat in
                         ChatRow(
                             chat: chat,
@@ -194,13 +208,13 @@ struct ChatsView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField(searchContent ? "Cerca nel contenuto delle chat" : "Cerca titolo, progetto o ID", text: $query)
+                TextField(ui.searchContent ? "Cerca nel contenuto delle chat" : "Cerca titolo, progetto o ID", text: $ui.query)
                     .textFieldStyle(.plain)
                 if store.isSearchingContent {
                     ProgressView().controlSize(.small)
                 }
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                if !ui.query.isEmpty {
+                    Button { ui.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
@@ -210,33 +224,33 @@ struct ChatsView: View {
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             HStack(spacing: 8) {
-                Toggle(isOn: $searchContent) {
+                Toggle(isOn: $ui.searchContent) {
                     Label("Nel contenuto", systemImage: "text.magnifyingglass")
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
 
                 Menu {
-                    Button("Tutti i progetti") { projectFilter = nil }
+                    Button("Tutti i progetti") { ui.projectFilter = nil }
                     Divider()
                     ForEach(projects, id: \.dir) { project in
-                        Button("\(projectLabel(project.dir)) (\(project.count))") { projectFilter = project.dir }
+                        Button("\(projectLabel(project.dir)) (\(project.count))") { ui.projectFilter = project.dir }
                     }
                 } label: {
-                    Label(projectFilter.map(projectLabel) ?? "Tutti i progetti", systemImage: "folder")
+                    Label(ui.projectFilter.map(projectLabel) ?? "Tutti i progetti", systemImage: "folder")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
                 .fixedSize()
 
                 Menu {
-                    Button("Tutti gli account") { accountFilter = nil }
+                    Button("Tutti gli account") { ui.accountFilter = nil }
                     Divider()
                     ForEach(store.accounts.filter { !$0.isDefault }) { account in
-                        Button(account.name) { accountFilter = account.id }
+                        Button(account.name) { ui.accountFilter = account.id }
                     }
                 } label: {
-                    Label(accountFilter.flatMap { store.account(id: $0)?.name } ?? "Tutti gli account", systemImage: "person.crop.circle")
+                    Label(ui.accountFilter.flatMap { store.account(id: $0)?.name } ?? "Tutti gli account", systemImage: "person.crop.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
@@ -253,31 +267,31 @@ struct ChatsView: View {
 
     private var actions: ChatActions {
         ChatActions(
-            rename: { renameTarget = $0 },
-            split: { splitTarget = $0 },
-            slim: { slimTargets = $0 },
-            move: { moveTargets = $0 },
-            merge: { mergeTargets = $0 },
-            trash: { trashTargets = $0 }
+            rename: { ui.renameTarget = $0 },
+            split: { ui.splitTarget = $0 },
+            slim: { ui.slimTargets = $0 },
+            move: { ui.moveTargets = $0 },
+            merge: { ui.mergeTargets = $0 },
+            trash: { ui.trashTargets = $0 }
         )
     }
 
     @ViewBuilder
     private func contextMenu(for chat: ChatSession) -> some View {
-        let targets = selection.contains(chat.id) ? selectedChats : [chat]
+        let targets = ui.selection.contains(chat.id) ? selectedChats : [chat]
         if targets.count == 1 {
             Menu("Riprendi in \(Launcher.terminalName) con…") {
                 ForEach(store.accounts) { account in
                     Button(account.name) { store.resume(chat, with: account) }
                 }
             }
-            Button("Rinomina…") { renameTarget = chat }
+            Button("Rinomina…") { ui.renameTarget = chat }
             if !chat.isCodex {
                 Button("Suggerisci titolo con Claude") {
                     Task { await store.suggestTitle(for: chat, account: store.preferredAccount) }
                 }
                 .disabled(chat.promptCount == 0)
-                Button("Dividi in argomenti…") { splitTarget = chat }
+                Button("Dividi in argomenti…") { ui.splitTarget = chat }
                 Button("Rigenera descrizione") { store.refreshDescriptions(force: [chat]) }
             }
             Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
@@ -286,11 +300,11 @@ struct ChatsView: View {
                 NSPasteboard.general.setString(chat.id, forType: .string)
             }
         } else if !targets.contains(where: \.isCodex) {
-            Button("Unisci \(targets.count) chat…") { mergeTargets = targets }
+            Button("Unisci \(targets.count) chat…") { ui.mergeTargets = targets }
         }
         // Merge, slim and move know Claude Code's transcript format only.
         if !targets.contains(where: \.isCodex) {
-            Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { slimTargets = targets }
+            Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { ui.slimTargets = targets }
         }
         Divider()
         if targets.allSatisfy(store.isWorking) {
@@ -299,16 +313,16 @@ struct ChatsView: View {
             Button("Segna in lavorazione") { store.setWorking(true, for: targets) }
         }
         if !targets.contains(where: \.isCodex) {
-            Button("Sposta in…") { moveTargets = targets }
+            Button("Sposta in…") { ui.moveTargets = targets }
         }
         Menu("Contesto") { contextItems(for: targets) }
         if targets.allSatisfy(store.isArchived) {
             Button("Ripristina dall'archivio") { store.unarchive(targets) }
         } else {
-            Button("Archivia") { store.archive(targets); selection.subtract(targets.map(\.id)) }
+            Button("Archivia") { store.archive(targets); ui.selection.subtract(targets.map(\.id)) }
         }
         Divider()
-        Button("Sposta nel Cestino", role: .destructive) { trashTargets = targets }
+        Button("Sposta nel Cestino", role: .destructive) { ui.trashTargets = targets }
     }
 
     @ViewBuilder
@@ -467,31 +481,36 @@ private struct ChatRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            HStack(spacing: 6) {
-                Label(chat.projectName, systemImage: "folder")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if showContext || context == nil {
-                    ContextBadge(context: context)
-                }
-                if chat.isCodex {
-                    ProviderBadge(provider: .codex)
-                } else {
-                    ForEach(accounts) { account in
-                        AccountBadge(account: account, compact: true)
+            HStack(alignment: .center, spacing: 6) {
+                // Badges wrap as whole pills in a narrow list instead of breaking letter by letter.
+                FlowLayout(spacing: 6, lineSpacing: 4) {
+                    Label(chat.projectName, systemImage: "folder")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if showContext || context == nil {
+                        ContextBadge(context: context).fixedSize()
+                    }
+                    if chat.isCodex {
+                        ProviderBadge(provider: .codex).fixedSize()
+                    } else {
+                        ForEach(accounts) { account in
+                            AccountBadge(account: account, compact: true).fixedSize()
+                        }
                     }
                 }
-                Spacer()
+                Spacer(minLength: 4)
                 if contextTokens > 0 {
                     ContextRing(tokens: contextTokens)
                     Text(ContextMeter.format(contextTokens))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .fixedSize()
                 } else {
                     Text(formatBytes(chat.sizeBytes))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.tertiary)
+                        .fixedSize()
                 }
             }
         }
@@ -499,7 +518,7 @@ private struct ChatRow: View {
     }
 }
 
-// MARK: - Multi selection
+// MARK: - Multi ui.selection
 
 private struct MultiSelectionView: View {
     @ObservedObject var store: DeckStore

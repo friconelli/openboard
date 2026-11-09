@@ -108,8 +108,12 @@ struct TranscriptView: View {
                         }
                         .padding(20)
                     }
-                    .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
-                    .onChange(of: messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                    // Native bottom anchoring: with lazily measured rows, a scrollTo right after
+                    // loading can land past the content and leave the view blank.
+                    .defaultScrollAnchor(.bottom)
+                    .onChange(of: messages.count) { _, _ in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
                     .onReceive(live?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
                         DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
                     }

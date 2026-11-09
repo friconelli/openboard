@@ -102,15 +102,30 @@ struct ContentView: View {
     @State private var focusedChatID: String?
     @State private var showPalette = false
     @State private var showNewChat = false
+    @StateObject private var chatsUI = ChatsUI()
+    /// Which chats the list on the left shows.
+    @State private var listScope: ChatScope = .all
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
     @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
 
     var body: some View {
         NavigationSplitView {
-            sidebar
+            chatList
         } detail: {
-            detail
-                .background(Theme.pageBackground ?? .clear)
+            HStack(spacing: 0) {
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                rail
+            }
+            .background(Theme.pageBackground ?? .clear)
+        }
+        .onChange(of: section) { _, value in
+            if case .chats(let scope) = value { listScope = scope }
+        }
+        .onChange(of: chatsUI.selection) { _, value in
+            // Picking a chat in the list while a page is open brings the chat back.
+            if !value.isEmpty, case .chats = section {} else if !value.isEmpty { section = .chats(listScope) }
         }
         // Theme colours are read statically: rebuild the views when the theme changes.
         .id(appearance)
@@ -211,73 +226,17 @@ struct ContentView: View {
         }
     }
 
-    private var sidebar: some View {
-            List(selection: $section) {
-                row("Nuova chat guidata", symbol: "sparkles", tint: Theme.coral)
-                    .tag(DeckSection.compose)
-                let attention = store.activeSessions.filter { $0.status != "busy" }.count
-                row("Panoramica", symbol: "square.grid.2x2.fill", tint: .teal, count: attention > 0 ? attention : nil,
-                    highlight: attention > 0 ? .green : nil)
-                    .tag(DeckSection.overview)
-                    .help("Cosa ti aspetta: sessioni in attesa, chat ferme, chat da ricollegare o alleggerire")
-
-                Section("Chat") {
-                    let working = store.workingChats.count
-                    row("In lavorazione", symbol: "flag.fill", tint: .orange, count: working, highlight: working > 0 ? .orange : nil)
-                        .tag(DeckSection.chats(.working))
-                        .help("Le chat che stai seguendo adesso: le aggiungi e le togli tu (menu contestuale o dettaglio)")
-                    row("Tutte", symbol: "bubble.left.and.bubble.right.fill", tint: Theme.coral, count: store.visibleChats.count)
-                        .tag(DeckSection.chats(.all))
-                    ForEach(store.config.contexts, id: \.self) { context in
-                        row(context, symbol: Theme.symbol(forContext: context), tint: Theme.color(forContext: context),
-                            count: store.visibleChats.filter { store.context(for: $0) == context }.count)
-                            .tag(DeckSection.chats(.context(context)))
-                    }
-                    let unassigned = store.visibleChats.filter { store.context(for: $0) == nil }.count
-                    row("Da assegnare", symbol: "tray.fill", tint: .gray, count: unassigned, highlight: unassigned > 0 ? .gray : nil)
-                        .tag(DeckSection.chats(.unassigned))
-                }
-                let smart = SmartFilter.allCases.filter { !(store.config.hiddenSmartFilters ?? []).contains($0.rawValue) }
-                    .map { filter in (filter, store.visibleChats.filter { store.matches($0, filter) }.count) }
-                    .filter { $0.1 > 0 }
-                if !smart.isEmpty {
-                    Section("Filtri") {
-                        ForEach(smart, id: \.0) { filter, count in
-                            row(filter.title, symbol: filter.symbol, tint: filter.tint, count: count)
-                                .tag(DeckSection.chats(.smart(filter)))
-                                .help(filter.hint)
-                                .contextMenu {
-                                    Button("Nascondi “\(filter.title)”") { store.setSmartFilter(filter, hidden: true) }
-                                }
-                        }
-                    }
-                }
-                Section("Organizza") {
-                    let advice = store.visibleChats.filter { store.hasAdvice(for: $0) }.count
-                    row("Consigli", symbol: "lightbulb.fill", tint: .yellow, count: advice, highlight: advice > 0 ? .orange : nil)
-                        .tag(DeckSection.insights)
-                        .help("Chat da snellire o dividere e modello giusto per ogni lavoro")
-                    row("Archivio", symbol: "archivebox.fill", tint: .gray, count: store.archivedChats.count)
-                        .tag(DeckSection.chats(.archived))
-                        .help("Chat archiviate: nascoste dalle liste, i file restano dove sono")
-                    row("Attività", symbol: "clock.arrow.circlepath", tint: .teal, count: store.tasks.filter(\.enabled).count)
-                        .tag(DeckSection.tasks)
-                        .help("Messaggi a Claude o Codex a orari fissi")
-                    row("Aree di lavoro", symbol: "folder.fill", tint: .orange)
-                        .tag(DeckSection.areas)
-                        .help("Cartelle da cui far partire le chat, per contesto")
-                    row("Memoria", symbol: "brain.head.profile", tint: .purple, count: store.memoryFiles.count)
-                        .tag(DeckSection.memory)
-                }
-                Section("Sistema") {
-                    row("Sessioni attive", symbol: "bolt.horizontal.fill", tint: .green, count: store.activeSessions.count,
-                        highlight: store.activeSessions.isEmpty ? nil : .green)
-                        .tag(DeckSection.active)
-                    row("Account", symbol: "person.2.fill", tint: .blue, count: store.accounts.filter { !$0.isDefault }.count)
-                        .tag(DeckSection.accounts)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+    /// Left column, like OpenChamber: which chats (scope menu), search and the list itself;
+    /// plan usage and progress at the bottom.
+    private var chatList: some View {
+        VStack(spacing: 0) {
+            scopeMenu
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
+            ChatsView(store: store, scope: listScope, focusedChatID: $focusedChatID, ui: chatsUI, mode: .list)
+        }
+        .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
             .safeAreaInset(edge: .bottom) {
                 PlanUsagePanel(store: store)
                 if updater.updateAvailable, let latest = updater.latest {
@@ -321,8 +280,124 @@ struct ContentView: View {
                     .padding(12)
                 }
             }
-            .scrollContentBackground(Theme.isWarm ? .hidden : .automatic)
             .background(Theme.sidebarBackground ?? .clear)
+    }
+
+    private func count(_ scope: ChatScope) -> Int {
+        switch scope {
+        case .all: return store.visibleChats.count
+        case .archived: return store.archivedChats.count
+        case .working: return store.workingChats.count
+        case .smart(let filter): return store.visibleChats.filter { store.matches($0, filter) }.count
+        case .context(let context): return store.visibleChats.filter { store.context(for: $0) == context }.count
+        case .unassigned: return store.visibleChats.filter { store.context(for: $0) == nil }.count
+        }
+    }
+
+    private func scopeLabel(_ scope: ChatScope) -> (title: String, symbol: String) {
+        switch scope {
+        case .all: return ("Tutte le chat", "bubble.left.and.bubble.right")
+        case .archived: return ("Archivio", "archivebox")
+        case .working: return ("In lavorazione", "flag")
+        case .smart(let filter): return (filter.title, Theme.line(filter.symbol))
+        case .context(let context): return (context, Theme.line(Theme.symbol(forContext: context)))
+        case .unassigned: return ("Da assegnare", "tray")
+        }
+    }
+
+    private func scopeButton(_ scope: ChatScope) -> some View {
+        let label = scopeLabel(scope)
+        return Button {
+            section = .chats(scope)
+        } label: {
+            Label("\(label.title)  \(count(scope))", systemImage: label.symbol)
+        }
+    }
+
+    /// The list's filter: what used to be the sidebar sections, in one menu.
+    private var scopeMenu: some View {
+        let current = scopeLabel(listScope)
+        return Menu {
+            Section("Chat") {
+                scopeButton(.all)
+                scopeButton(.working)
+                ForEach(store.config.contexts, id: \.self) { scopeButton(.context($0)) }
+                scopeButton(.unassigned)
+            }
+            let smart = SmartFilter.allCases.filter { !(store.config.hiddenSmartFilters ?? []).contains($0.rawValue) && count(.smart($0)) > 0 }
+            if !smart.isEmpty {
+                Section("Filtri") {
+                    ForEach(smart) { scopeButton(.smart($0)) }
+                }
+            }
+            Section {
+                scopeButton(.archived)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: current.symbol).foregroundStyle(Theme.accent)
+                Text(current.title).font(.headline)
+                Text("\(count(listScope))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help("Quali chat mostrare: tutte, in lavorazione, per contesto, filtri, archivio")
+    }
+
+    /// Right rail: the app's pages, as OpenChamber's icon rail.
+    private var rail: some View {
+        let attention = store.activeSessions.filter { $0.status != "busy" }.count
+        let advice = store.visibleChats.filter { store.hasAdvice(for: $0) }.count
+        return VStack(spacing: 6) {
+            railButton("Chat", "bubble.left.and.bubble.right", isOn: { if case .chats = section { return true }; return false }()) {
+                section = .chats(listScope)
+            }
+            Divider().frame(width: 28).padding(.vertical, 4)
+            railButton("Panoramica", "square.grid.2x2", badge: attention, isOn: section == .overview) { section = .overview }
+            railButton("Nuova chat guidata", "sparkles", isOn: section == .compose) { section = .compose }
+            railButton("Consigli", "lightbulb", badge: advice, isOn: section == .insights) { section = .insights }
+            railButton("Attività programmate", "clock.arrow.circlepath", isOn: section == .tasks) { section = .tasks }
+            railButton("Aree di lavoro", "folder", isOn: section == .areas) { section = .areas }
+            railButton("Memoria", "brain.head.profile", isOn: section == .memory) { section = .memory }
+            Spacer()
+            railButton("Sessioni attive", "bolt.horizontal", badge: store.activeSessions.count, isOn: section == .active) { section = .active }
+            railButton("Account", "person.2", isOn: section == .accounts) { section = .accounts }
+        }
+        .padding(.vertical, 10)
+        .frame(width: 52)
+        .background(Theme.sidebarBackground ?? Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func railButton(_ title: String, _ symbol: String, badge: Int = 0, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(isOn ? Theme.accent : .secondary)
+                .frame(width: 36, height: 34)
+                .background(isOn ? Theme.accent.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        Text("\(min(badge, 99))")
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Theme.accent, in: Capsule())
+                            .offset(x: 4, y: -2)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
     }
 
     @ViewBuilder
@@ -334,7 +409,7 @@ struct ContentView: View {
                     section = .chats(.all)
                 }
             case .chats(let scope):
-                ChatsView(store: store, scope: scope, focusedChatID: $focusedChatID)
+                ChatsView(store: store, scope: scope, focusedChatID: $focusedChatID, ui: chatsUI, mode: .detail)
             case .areas:
                 WorkspacesView(store: store) { scope in section = .chats(scope) }
             case .active:
@@ -359,32 +434,5 @@ struct ContentView: View {
                     section = .chats(.all)
                 }
             }
-    }
-
-    private func row(_ title: String, symbol: String, tint: Color, count: Int? = nil, highlight: Color? = nil) -> some View {
-        HStack(spacing: 10) {
-            // Line icon in the text colour, like OpenChamber's sidebar: colour is kept for status.
-            Image(systemName: Theme.line(symbol))
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
-            Text(title)
-            Spacer()
-            if let count {
-                if let highlight {
-                    Text("\(count)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Theme.soft(highlight).opacity(0.14), in: Capsule())
-                        .foregroundStyle(Theme.soft(highlight))
-                } else {
-                    Text("\(count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(.vertical, 1)
     }
 }
