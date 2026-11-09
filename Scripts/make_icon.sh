@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Resources/AppIcon.icns from Resources/AppIcon-1024.png (the sage “board” icon).
+# Builds Resources/AppIcon.icns from Resources/AppIcon-1024.png, drawn by Scripts/draw_icon.swift.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 rm -rf AppIcon.iconset && mkdir AppIcon.iconset
