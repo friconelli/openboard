@@ -94,6 +94,7 @@ struct ContentView: View {
     @State private var focusedChatID: String?
     @State private var showPalette = false
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
+    @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
 
     var body: some View {
         NavigationSplitView {
@@ -104,7 +105,7 @@ struct ContentView: View {
         }
         // Theme colours are read statically: rebuild the views when the theme changes.
         .id(appearance)
-        .preferredColorScheme(Theme.isWarm ? .dark : nil)
+        .preferredColorScheme(mode.scheme)
         .tint(Theme.accent)
         .overlay(alignment: .bottom) {
             if let action = store.pendingUndo {

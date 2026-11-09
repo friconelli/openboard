@@ -10,6 +10,7 @@ extension Notification.Name {
 struct DeckCommands: Commands {
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
     @AppStorage(RowDensity.key) private var density: RowDensity = .comfortable
+    @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
 
     private func go(_ name: String) {
         NotificationCenter.default.post(name: .showSection, object: name)
@@ -32,6 +33,9 @@ struct DeckCommands: Commands {
         CommandGroup(after: .toolbar) {
             Picker("Tema", selection: $appearance) {
                 ForEach(Theme.Appearance.allCases) { Text($0.title).tag($0) }
+            }
+            Picker("Chiaro o scuro", selection: $mode) {
+                ForEach(Theme.Mode.allCases) { Text($0.title).tag($0) }
             }
             Picker("Righe delle chat", selection: $density) {
                 ForEach(RowDensity.allCases) { Text($0.title).tag($0) }

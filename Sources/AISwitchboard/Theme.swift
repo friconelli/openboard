@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum Theme {
     /// “Caldo”: dark, warm and inky, after OpenChamber's default theme (OKLCH-harmonised neutrals
@@ -6,31 +7,62 @@ enum Theme {
     enum Appearance: String, CaseIterable, Identifiable {
         case system, warm
         var id: String { rawValue }
-        var title: String { self == .system ? "Sistema" : "Caldo scuro" }
+        var title: String { self == .system ? "Originale" : "Caldo" }
+    }
+
+    /// Light, dark or whatever macOS is using; independent of the palette.
+    enum Mode: String, CaseIterable, Identifiable {
+        case auto, light, dark
+        static let key = "colorMode"
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .auto: return "Automatico"
+            case .light: return "Chiaro"
+            case .dark: return "Scuro"
+            }
+        }
+        var scheme: ColorScheme? {
+            switch self {
+            case .auto: return nil
+            case .light: return .light
+            case .dark: return .dark
+            }
+        }
     }
 
     static let appearanceKey = "appearance"
     static var appearance: Appearance {
+        // "warm" was the dark-only theme of the first version: it is now the warm palette.
         Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
     }
     static var isWarm: Bool { appearance == .warm }
 
-    static func hex(_ value: UInt32, alpha: Double = 1) -> Color {
-        Color(.sRGB, red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255,
-              blue: Double(value & 0xFF) / 255, opacity: alpha)
+    static func hex(_ value: UInt32, alpha: Double = 1) -> Color { Color(nsColor: nsHex(value, alpha: alpha)) }
+
+    private static func nsHex(_ value: UInt32, alpha: Double = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                blue: CGFloat(value & 0xFF) / 255, alpha: alpha)
     }
 
-    static var coral: Color { isWarm ? hex(0xDA7C47) : Color(red: 0.85, green: 0.47, blue: 0.34) }
+    /// A colour that follows light and dark mode, from OpenChamber's warm light and dark palettes.
+    static func warm(light: UInt32, dark: UInt32, alpha: Double = 1) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? nsHex(dark, alpha: alpha) : nsHex(light, alpha: alpha)
+        })
+    }
+
+    static var coral: Color { isWarm ? warm(light: 0xB35017, dark: 0xDA7C47) : Color(red: 0.85, green: 0.47, blue: 0.34) }
     static var accent: Color { coral }
-    static var clay: Color { isWarm ? hex(0xA8522A) : Color(red: 0.60, green: 0.26, blue: 0.20) }
+    static var clay: Color { isWarm ? warm(light: 0x8A3A10, dark: 0xA8522A) : Color(red: 0.60, green: 0.26, blue: 0.20) }
     static var brandGradient: LinearGradient {
         LinearGradient(colors: [coral, clay], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
-    static var cardBackground: Color { isWarm ? hex(0x1B1918) : Color(nsColor: .controlBackgroundColor) }
+    static var cardBackground: Color { isWarm ? warm(light: 0xFFFFFF, dark: 0x1B1918) : Color(nsColor: .controlBackgroundColor) }
     /// Page background; nil leaves the system one.
-    static var pageBackground: Color? { isWarm ? hex(0x120F0E) : nil }
-    static var sidebarBackground: Color? { isWarm ? hex(0x0E0C0B) : nil }
-    static var hairline: Color { isWarm ? hex(0x242323, alpha: 0.75) : Color.primary.opacity(0.08) }
+    static var pageBackground: Color? { isWarm ? warm(light: 0xFDFCFA, dark: 0x120F0E) : nil }
+    static var sidebarBackground: Color? { isWarm ? warm(light: 0xF3F2F0, dark: 0x0E0C0B) : nil }
+    static var hairline: Color { isWarm ? warm(light: 0xE6E3DE, dark: 0x242323, alpha: 0.75) : Color.primary.opacity(0.08) }
     static let cardRadius: CGFloat = 16
 
     static func color(forContext context: String) -> Color {
