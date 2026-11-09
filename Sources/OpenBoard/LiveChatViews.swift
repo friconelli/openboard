@@ -39,8 +39,7 @@ struct LiveItemsView: View {
                     Image(systemName: "sparkle")
                         .foregroundStyle(Theme.coral)
                         .padding(.top, 2)
-                    Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
-                        .textSelection(.enabled)
+                    MarkdownView(text: text)
                     Spacer(minLength: 40)
                 }
             case .thinking:
@@ -60,6 +59,21 @@ struct LiveItemsView: View {
         }
         if let permission = live.pendingPermission {
             PermissionCard(permission: permission, live: live)
+        }
+        ForEach(live.queue) { queued in
+            HStack {
+                Spacer(minLength: 60)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(LiveChat.shown(queued.text, queued.attachments))
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(Theme.userBubble.opacity(0.5), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4])))
+                    HStack(spacing: 6) {
+                        Label("In coda", systemImage: "clock").font(.caption2).foregroundStyle(.secondary)
+                        Button("Togli") { live.removeFromQueue(queued.id) }.buttonStyle(.link).font(.caption2)
+                    }
+                }
+            }
         }
         if live.isRunning && live.pendingPermission == nil && !live.items.contains(where: { if case .thinking = $0 { return true } else { return false } }) {
             HStack(spacing: 8) {
@@ -180,8 +194,18 @@ struct ChatComposer: View {
     @ObservedObject var live: LiveChat
     let blockedReason: String?
 
-    @State private var text = ""
     @FocusState private var focused: Bool
+    @State private var attachments: [URL] = []
+    @State private var dropTargeted = false
+
+    /// The draft is kept per chat (and across launches) until it is sent.
+    private var text: String {
+        get { store.drafts[live.chatID] ?? "" }
+        nonmutating set { store.setDraft(newValue, for: live.chatID) }
+    }
+    private var textBinding: Binding<String> {
+        Binding(get: { store.drafts[live.chatID] ?? "" }, set: { store.setDraft($0, for: live.chatID) })
+    }
 
     private let models: [(String, String?)] = [("Predefinito", nil), ("Opus", "opus"), ("Sonnet", "sonnet"), ("Haiku", "haiku")]
 
@@ -192,7 +216,8 @@ struct ChatComposer: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            PlaceholderTextEditor(placeholder: live.isRunning ? "\(live.provider.title) sta lavorando…" : "Scrivi a \(live.provider.title)…", text: $text, padding: 0)
+            if !attachments.isEmpty { attachmentsRow }
+            PlaceholderTextEditor(placeholder: live.isRunning ? "\(live.provider.title) sta lavorando…" : "Scrivi a \(live.provider.title)…", text: textBinding, padding: 0)
                     .frame(minHeight: 22, maxHeight: 140)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($focused)
@@ -252,22 +277,25 @@ struct ChatComposer: View {
                 if live.contextTokens > 0 {
                     ContextRing(tokens: live.contextTokens, size: 14)
                 }
+                Button { pickFiles() } label: { Image(systemName: "paperclip") }
+                    .help("Allega file o immagini (puoi anche trascinarli qui)")
+                Button { pasteImage() } label: { Image(systemName: "photo.on.rectangle") }
+                    .help("Incolla l'immagine o i file copiati")
                 if live.isRunning {
                     Button { live.stop() } label: {
                         Image(systemName: "stop.fill")
                     }
                     .help("Interrompi (Esc)")
                     .keyboardShortcut(.cancelAction)
-                } else {
-                    Button { submit() } label: {
-                        Image(systemName: "arrow.up")
-                            .fontWeight(.semibold)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || blockedReason != nil)
-                    .help("Invia (↩)")
                 }
+                Button { submit() } label: {
+                    Image(systemName: live.isRunning ? "text.append" : "arrow.up")
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+                .disabled((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty) || blockedReason != nil)
+                .help(live.isRunning ? "Metti in coda: parte quando finisce la risposta (↩)" : "Invia (↩)")
             }
             .menuStyle(.borderlessButton)
             .fixedSize(horizontal: false, vertical: true)
@@ -276,18 +304,71 @@ struct ChatComposer: View {
         }
         .padding(12)
         .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? Theme.accent.opacity(0.45) : Theme.hairline))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(dropTargeted ? Theme.accent : focused ? Theme.accent.opacity(0.45) : Theme.hairline, lineWidth: dropTargeted ? 2 : 1))
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { DispatchQueue.main.async { attachments.append(url) } }
+                }
+            }
+            return true
+        }
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
         .padding(.top, 6)
     }
 
     private func submit() {
-        guard blockedReason == nil, !live.isRunning else { return }
+        guard blockedReason == nil else { return }
         let message = text
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         text = ""
-        live.send(message)
+        let files = attachments
+        attachments = []
+        live.send(message, attachments: files)
+    }
+
+    private func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK { attachments += panel.urls }
+    }
+
+    /// An image on the clipboard (a screenshot copied with ⌃⇧⌘4) becomes a PNG attachment.
+    private func pasteImage() {
+        let pasteboard = NSPasteboard.general
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            attachments += urls
+            return
+        }
+        guard let image = NSImage(pasteboard: pasteboard), let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
+        let folder = ClaudePaths.home.appendingPathComponent(".openboard/attachments")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("incollata-\(Int(Date().timeIntervalSince1970)).png")
+        if (try? png.write(to: url)) != nil { attachments.append(url) }
+    }
+
+    private var attachmentsRow: some View {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(attachments, id: \.self) { url in
+                HStack(spacing: 4) {
+                    if LiveChat.imageType(url) != nil, let image = NSImage(contentsOf: url) {
+                        Image(nsImage: image).resizable().scaledToFill().frame(width: 22, height: 22)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    } else {
+                        Image(systemName: "doc").foregroundStyle(.secondary)
+                    }
+                    Text(url.lastPathComponent).font(.caption).lineLimit(1).frame(maxWidth: 160)
+                    Button { attachments.removeAll { $0 == url } } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Color.primary.opacity(0.06), in: Capsule())
+            }
+        }
     }
 
     private func quotaView(_ usage: PlanUsage.Snapshot) -> some View {

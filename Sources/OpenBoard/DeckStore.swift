@@ -20,6 +20,23 @@ final class DeckStore: ObservableObject {
     /// Plan usage (5-hour session and week) per account id.
     @Published var planUsage: [String: PlanUsage.Snapshot] = [:]
     @Published var tasks: [ScheduledTask] = TaskScheduler.load()
+    /// Unsent text per chat, kept across launches.
+    @Published private(set) var drafts: [String: String] = DeckStore.loadDrafts()
+    private var draftSave: DispatchWorkItem?
+
+    private static var draftsURL: URL { ClaudePaths.appSupport.appendingPathComponent("drafts.json") }
+    private static func loadDrafts() -> [String: String] {
+        (try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: draftsURL))) ?? [:]
+    }
+
+    func setDraft(_ text: String, for chatID: String) {
+        drafts[chatID] = text.isEmpty ? nil : text
+        draftSave?.cancel()
+        let snapshot = drafts
+        let work = DispatchWorkItem { try? JSONEncoder().encode(snapshot).write(to: DeckStore.draftsURL, options: .atomic) }
+        draftSave = work
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
     private var planUsageTimer: Timer?
     private var planUsageLoading = false
     @Published var memoryFiles: [MemoryFile] = []

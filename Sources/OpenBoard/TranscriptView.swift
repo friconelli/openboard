@@ -51,7 +51,9 @@ struct TranscriptView: View {
                live.items.isEmpty {
                 live.model = defaults.string(forKey: "debugModel")
                 if let mode = defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) { live.mode = mode }
-                live.send(message)
+                let attach = defaults.string(forKey: "debugAttach").map { [URL(fileURLWithPath: $0)] } ?? []
+                live.send(message, attachments: attach)
+                if let second = defaults.string(forKey: "debugQueue") { live.send(second) }
             }
         }
         .task(id: "\(chat.id)|\(chat.sizeBytes)|\(chat.modifiedAt.timeIntervalSince1970)|\(live?.isRunning == true)") {
@@ -221,8 +223,7 @@ private struct MessageView: View {
                 Image(systemName: "sparkle")
                     .foregroundStyle(Theme.coral)
                     .padding(.top, 2)
-                Text(markdown(message.text))
-                    .textSelection(.enabled)
+                MarkdownView(text: message.text)
                 Spacer(minLength: 40)
             }
         case .command:

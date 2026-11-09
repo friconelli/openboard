@@ -117,20 +117,69 @@ final class LiveChat: ObservableObject {
 
     // MARK: - Sending
 
-    func send(_ text: String) {
+    /// Messages written while Claude was busy: sent one after the other as turns end.
+    struct Queued: Identifiable {
+        let id = UUID()
+        let text: String
+        let attachments: [URL]
+    }
+    @Published private(set) var queue: [Queued] = []
+    /// The last message sent, kept to send it again with another account at the usage limit.
+    private(set) var lastSent: Queued?
+
+    func removeFromQueue(_ id: UUID) { queue.removeAll { $0.id == id } }
+
+    func send(_ text: String, attachments: [URL] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isRunning else { return }
-        if provider == .codex { sendCodex(trimmed); return }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        if isRunning {
+            queue.append(Queued(text: trimmed, attachments: attachments))
+            return
+        }
+        lastSent = Queued(text: trimmed, attachments: attachments)
+        if provider == .codex { sendCodex(trimmed, attachments: attachments); return }
         do {
             try ensureProcess()
         } catch {
             items.append(.notice(id: UUID().uuidString, text: "Non riesco ad avviare Claude: \(error.localizedDescription)", isError: true))
             return
         }
-        items.append(.user(id: UUID().uuidString, text: trimmed))
+        items.append(.user(id: UUID().uuidString, text: Self.shown(trimmed, attachments)))
         historyCutoff = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
         isRunning = true
-        write(["type": "user", "message": ["role": "user", "content": trimmed]])
+        write(["type": "user", "message": ["role": "user", "content": Self.contentBlocks(trimmed, attachments)]])
+    }
+
+    /// Images go in as image blocks; other files are named by path so Claude can read them.
+    static func contentBlocks(_ text: String, _ attachments: [URL]) -> Any {
+        guard !attachments.isEmpty else { return text }
+        var blocks: [[String: Any]] = []
+        var files: [String] = []
+        for url in attachments {
+            if let type = imageType(url), let data = try? Data(contentsOf: url), data.count < 15_000_000 {
+                blocks.append(["type": "image", "source": ["type": "base64", "media_type": type, "data": data.base64EncodedString()]])
+            } else {
+                files.append(url.path)
+            }
+        }
+        var body = text
+        if !files.isEmpty { body += (body.isEmpty ? "" : "\n\n") + "File allegati:\n" + files.map { "- \($0)" }.joined(separator: "\n") }
+        if !body.isEmpty { blocks.insert(["type": "text", "text": body], at: 0) }
+        return blocks
+    }
+
+    static func imageType(_ url: URL) -> String? {
+        switch url.pathExtension.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        default: return nil
+        }
+    }
+
+    static func shown(_ text: String, _ attachments: [URL]) -> String {
+        attachments.isEmpty ? text : text + (text.isEmpty ? "" : "\n") + attachments.map { "📎 \($0.lastPathComponent)" }.joined(separator: "  ")
     }
 
     func stop() {
@@ -369,8 +418,14 @@ final class LiveChat: ObservableObject {
         if let notice { items.append(.notice(id: UUID().uuidString, text: notice, isError: isError)) }
         pendingPermission = nil
         isRunning = false
+        let stopped = stopRequested
         stopRequested = false
         onTurnFinished?()
+        // Next queued message, unless the turn was stopped on purpose.
+        if !stopped, !queue.isEmpty {
+            let next = queue.removeFirst()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.send(next.text, attachments: next.attachments) }
+        }
     }
 
     // MARK: - Codex
@@ -395,7 +450,7 @@ final class LiveChat: ObservableObject {
     }
 
     /// One `codex exec` per turn: a new thread the first time, `exec resume <id>` after.
-    private func sendCodex(_ text: String) {
+    private func sendCodex(_ text: String, attachments: [URL] = []) {
         guard let binary = Codex.binaryPath else {
             items.append(.notice(id: UUID().uuidString, text: "Non trovo il comando codex", isError: true))
             return
@@ -407,7 +462,11 @@ final class LiveChat: ObservableObject {
             arguments = ["exec", "resume", chatID, "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"\(sandbox.rawValue)\""]
         }
         if let model { arguments += ["-m", model] }
-        arguments.append(text)
+        let images = attachments.filter { Self.imageType($0) != nil }
+        for image in images { arguments += ["-i", image.path] }
+        // The prompt goes in on stdin: `-i` takes several values and would swallow it.
+        let others = attachments.filter { Self.imageType($0) == nil }
+        let prompt = text + (others.isEmpty ? "" : "\n\nFile allegati:\n" + others.map { "- \($0.path)" }.joined(separator: "\n"))
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
@@ -416,7 +475,8 @@ final class LiveChat: ObservableObject {
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
+        let stdin = Pipe()
+        process.standardInput = stdin
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             Task { @MainActor in self?.receive(data) }
@@ -425,7 +485,7 @@ final class LiveChat: ObservableObject {
             let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             Task { @MainActor in self?.ended(finished, errors: errors) }
         }
-        items.append(.user(id: UUID().uuidString, text: text))
+        items.append(.user(id: UUID().uuidString, text: Self.shown(text, attachments)))
         historyCutoff = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
         do {
             try process.run()
@@ -433,6 +493,8 @@ final class LiveChat: ObservableObject {
             items.append(.notice(id: UUID().uuidString, text: "Non riesco ad avviare Codex: \(error.localizedDescription)", isError: true))
             return
         }
+        try? stdin.fileHandleForWriting.write(contentsOf: Data(prompt.utf8))
+        try? stdin.fileHandleForWriting.close()
         LiveChat.remember(process.processIdentifier)
         self.process = process
         isRunning = true
