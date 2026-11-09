@@ -717,6 +717,40 @@ final class DeckStore: ObservableObject {
         }
     }
 
+    // MARK: - Fork
+
+    /// A new chat with `chat`'s history up to the turn of `prompt` (its `occurrence`-th time,
+    /// counting from 0), including that turn or stopping just before it. The original is
+    /// untouched; `draft` goes in the new chat's composer. Returns the new chat's id.
+    func fork(_ chat: ChatSession, prompt: String, occurrence: Int, includingIt: Bool, title: String, draft: String?) async -> String? {
+        guard !chat.isCodex else { return nil }
+        let folder = chat.workingDirectory
+        let configDirs = accounts.map(\.configDir)
+        do {
+            let results = try await Task.detached(priority: .userInitiated) { () -> [SplitEngine.Result] in
+                let source = try SplitEngine.analyze(chat)
+                guard let anchor = SplitEngine.turn(matching: prompt, occurrence: occurrence, in: source) else {
+                    throw ChatOperationError.io("Non trovo quel messaggio nella conversazione.")
+                }
+                let end = includingIt ? anchor + 1 : anchor
+                guard end > 0 else { throw ChatOperationError.io("Prima di questo messaggio non c'è niente da tenere.") }
+                let kept = Array(0..<end)
+                return try SplitEngine.split(source, topics: [.init(title: title, description: nil, folder: folder, turns: kept, summary: nil)],
+                                             configDirs: configDirs)
+            }.value
+            guard let created = results.first else { return nil }
+            for account in accounts where !account.isDefault && (sessionAccounts[chat.id]?.contains(account.id) ?? false) {
+                try? appendHistory(created.sessionID, cwd: folder, title: title, account: account)
+            }
+            if let draft { setDraft(draft, for: created.sessionID) }
+            reloadChats()
+            return created.sessionID
+        } catch {
+            errorMessage = "Non sono riuscito a biforcare la chat.\n\n\(error.localizedDescription)"
+            return nil
+        }
+    }
+
     // MARK: - Scheduled tasks
 
     func saveTask(_ task: ScheduledTask) {

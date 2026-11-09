@@ -44,6 +44,14 @@ enum SplitEngine {
         return (Array(sorted[firstKept...]), Array(sorted[..<firstKept]))
     }
 
+    /// The turn whose prompt is `prompt` (compared as cleaned text), its `occurrence`-th match.
+    static func turn(matching prompt: String, occurrence: Int, in source: Source) -> Int? {
+        func key(_ text: String) -> String { String(cleanPromptText(text).prefix(160)) }
+        let wanted = key(prompt)
+        let matches = source.turns.filter { key($0.prompt) == wanted }.map(\.id)
+        return matches.indices.contains(occurrence) ? matches[occurrence] : matches.last
+    }
+
     static func tokens(of turns: [Int], in source: Source) -> Int {
         turns.reduce(0) { $0 + (source.turns.indices.contains($1) ? source.turns[$1].tokens : 0) }
     }

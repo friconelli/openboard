@@ -95,6 +95,14 @@ final class ParallelToolResultsTests: XCTestCase {
         XCTAssertEqual(results[1].messageCount, 2)
     }
 
+    func testForkAnchorFindsTurnByPrompt() throws {
+        let chat = try makeChat(prefix: "aaaaaaaa")
+        let source = try SplitEngine.analyze(chat)
+        XCTAssertEqual(SplitEngine.turn(matching: "altro argomento", occurrence: 0, in: source), 1)
+        XCTAssertEqual(SplitEngine.turn(matching: "  leggi   due file ", occurrence: 0, in: source), 0, "compared as cleaned text")
+        XCTAssertNil(SplitEngine.turn(matching: "mai detto", occurrence: 0, in: source))
+    }
+
     func testSplitBudgetKeepsLatestTurns() throws {
         let chat = try makeChat(prefix: "aaaaaaaa")
         let source = try SplitEngine.analyze(chat)

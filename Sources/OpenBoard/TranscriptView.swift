@@ -44,6 +44,13 @@ struct TranscriptView: View {
         .onAppear {
             Notifier.shared.visibleChatID = chat.id
             if UserDefaults.standard.bool(forKey: "debugTerminal") { showTerminal = true }
+            if UserDefaults.standard.string(forKey: "debugChat") == chat.id, let prompt = UserDefaults.standard.string(forKey: "debugFork") {
+                Task {
+                    if let id = await store.fork(chat, prompt: prompt, occurrence: 0, includingIt: false, title: "\(chat.displayTitle) · da capo", draft: prompt) {
+                        NotificationCenter.default.post(name: .focusChat, object: id)
+                    }
+                }
+            }
             live = store.liveChat(for: chat)
             // Tests and screenshots: `-debugChat <id> -debugSend "…" [-debugModel haiku] [-debugMode manual]`.
             let defaults = UserDefaults.standard
@@ -89,9 +96,10 @@ struct TranscriptView: View {
                             if messages.isEmpty && (live?.items.isEmpty ?? true) {
                                 EmptyStateView(symbol: "text.bubble", title: "Conversazione vuota")
                             }
-                            ForEach(messages) { message in
+                            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                                 MessageView(message: message)
                                     .id(message.id)
+                                    .contextMenu { messageMenu(message, at: index) }
                             }
                             if let live {
                                 LiveItemsView(live: live)
@@ -111,6 +119,51 @@ struct TranscriptView: View {
                 ChatComposer(store: store, live: live, blockedReason: blockedReason)
             }
                 }
+    }
+
+    /// The prompt a message belongs to (itself, or the last one before it) and how many times
+    /// the same text came before, to find its turn in the transcript.
+    private func anchor(for index: Int) -> (text: String, occurrence: Int)? {
+        func isPrompt(_ message: TranscriptMessage) -> Bool {
+            if case .user = message.kind { return true }
+            if case .command = message.kind { return true }
+            return false
+        }
+        guard let position = messages.prefix(index + 1).lastIndex(where: isPrompt) else { return nil }
+        let text = messages[position].text
+        let occurrence = messages.prefix(position).filter { isPrompt($0) && cleanPromptText($0.text).prefix(160) == cleanPromptText(text).prefix(160) }.count
+        return (text, occurrence)
+    }
+
+    @ViewBuilder
+    private func messageMenu(_ message: TranscriptMessage, at index: Int) -> some View {
+        Button("Copia") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.text, forType: .string)
+        }
+        if !chat.isCodex, let anchor = anchor(for: index) {
+            Divider()
+            Button("Biforca fino a qui") {
+                Task {
+                    if let id = await store.fork(chat, prompt: anchor.text, occurrence: anchor.occurrence, includingIt: true,
+                                                 title: "\(chat.displayTitle) · biforcata", draft: nil) {
+                        NotificationCenter.default.post(name: .focusChat, object: id)
+                    }
+                }
+            }
+            .help("Nuova chat con la conversazione fino a questo punto; l'originale resta com'è")
+            if case .user = message.kind {
+                Button("Riparti da questo messaggio") {
+                    Task {
+                        if let id = await store.fork(chat, prompt: anchor.text, occurrence: anchor.occurrence, includingIt: false,
+                                                     title: "\(chat.displayTitle) · da capo", draft: message.text) {
+                            NotificationCenter.default.post(name: .focusChat, object: id)
+                        }
+                    }
+                }
+                .help("Nuova chat ferma prima di questo messaggio, con il testo pronto da modificare e rimandare")
+            }
+        }
     }
 
     private var header: some View {
