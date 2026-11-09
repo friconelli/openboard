@@ -13,6 +13,8 @@ final class DeckStore: ObservableObject {
     @Published var chats: [ChatSession] = []
     @Published var sessionAccounts: [String: Set<String>] = [:]
     @Published var activeSessions: [ActiveSession] = []
+    /// The last operation that can still be taken back, shown as a toast with “Annulla”.
+    @Published var pendingUndo: UndoAction?
     @Published var memoryFiles: [MemoryFile] = []
     @Published var config = SwitchboardConfig.load()
     @Published var areas: [WorkFolder] = []
@@ -411,12 +413,14 @@ final class DeckStore: ObservableObject {
             return
         }
         var trashed: Set<String> = []
+        var undo = UndoAction(message: chats.count == 1 ? "“\(chats[0].displayTitle)” nel Cestino" : "\(chats.count) chat nel Cestino")
         perform {
             for chat in chats {
-                try ChatOperations.trash(chat)
+                undo.restores += try ChatOperations.trash(chat)
                 trashed.insert(chat.id)
             }
         }
+        if !undo.restores.isEmpty { pendingUndo = undo }
         self.chats.removeAll { trashed.contains($0.id) }
         usage = usage.filter { !trashed.contains($0.key) }
         slimEntries = slimEntries.filter { !trashed.contains($0.key) }
@@ -451,9 +455,12 @@ final class DeckStore: ObservableObject {
         }
 
         var failed: [String] = []
+        var undo = UndoAction(message: "\(ordered.count) chat unite in “\(title)”",
+                              trashFirst: [result.fileURL, result.fileURL.deletingPathExtension()])
         for chat in ordered {
-            do { try ChatOperations.trash(chat) } catch { failed.append(chat.displayTitle) }
+            do { undo.restores += try ChatOperations.trash(chat) } catch { failed.append(chat.displayTitle) }
         }
+        pendingUndo = undo
         if !failed.isEmpty {
             errorMessage = "Unione completata, ma non ho potuto spostare nel Cestino: \(failed.joined(separator: ", "))."
         }
@@ -495,8 +502,11 @@ final class DeckStore: ObservableObject {
             }
         }
 
+        var undo = UndoAction(message: "“\(chat.displayTitle)” divisa in \(results.count) chat",
+                              trashFirst: results.flatMap { [$0.fileURL, $0.fileURL.deletingPathExtension()] })
+        defer { pendingUndo = undo }
         if trashOriginal {
-            do { try ChatOperations.trash(chat) } catch {
+            do { undo.restores = try ChatOperations.trash(chat) } catch {
                 errorMessage = "Divisione completata, ma non ho potuto spostare nel Cestino “\(chat.displayTitle)”."
             }
         }
@@ -535,6 +545,7 @@ final class DeckStore: ObservableObject {
     /// A chat where the chosen categories would gain next to nothing is left alone.
     func slim(_ chats: [ChatSession], enabled: Set<SlimEngine.Category>, progress: @escaping (Int) -> Void) async -> SlimResult {
         var result = SlimResult()
+        var slimUndo: [UndoAction.Restore] = []
         let active = activeSessionIDs
         for (index, chat) in chats.enumerated() {
             progress(index)
@@ -563,6 +574,10 @@ final class DeckStore: ObservableObject {
                     continue
                 }
                 result.slimmed += 1
+                if let original = outcome.trashedOriginal {
+                    // Undo: the slimmed file goes to the Trash first, then the original comes back.
+                    slimUndo.append(UndoAction.Restore(trashed: original, original: chat.fileURL))
+                }
                 result.before += outcome.before
                 result.after += outcome.after
                 result.tokensSaved += outcome.tokensSaved
@@ -579,8 +594,24 @@ final class DeckStore: ObservableObject {
             }
         }
         SlimAdvisor.save(slimEntries)
+        if !slimUndo.isEmpty {
+            pendingUndo = UndoAction(message: slimUndo.count == 1 ? "Chat snellita" : "\(slimUndo.count) chat snellite",
+                                     restores: slimUndo, trashFirst: slimUndo.map(\.original))
+        }
         reloadChats()
         return result
+    }
+
+    func undo() {
+        guard let action = pendingUndo else { return }
+        pendingUndo = nil
+        do {
+            try action.perform()
+        } catch {
+            errorMessage = "Annullamento non completo.\n\n\(error.localizedDescription)"
+        }
+        sessionAccounts = AccountScanner.sessionAccounts(accounts)
+        reloadChats()
     }
 
     func killSession(_ session: ActiveSession) {
@@ -633,6 +664,28 @@ final class DeckStore: ObservableObject {
     }
 
     /// `nil` resets the chat to its folder's context.
+    // MARK: - Smart sections
+
+    func matches(_ chat: ChatSession, _ filter: SmartFilter) -> Bool {
+        let age = Date().timeIntervalSince(chat.modifiedAt)
+        switch filter {
+        case .open: return activeSessionIDs.contains(chat.id)
+        case .today: return Calendar.current.isDateInToday(chat.modifiedAt)
+        case .week: return age < 7 * 24 * 3600
+        case .idle: return isWorking(chat) && age > 3 * 24 * 3600 && !activeSessionIDs.contains(chat.id)
+        case .heavy: return hasAdvice(for: chat)
+        case .untitled: return !chat.isCustomTitle && chat.promptCount > 0
+        }
+    }
+
+    func setSmartFilter(_ filter: SmartFilter, hidden: Bool) {
+        var list = config.hiddenSmartFilters ?? []
+        list.removeAll { $0 == filter.rawValue }
+        if hidden { list.append(filter.rawValue) }
+        config.hiddenSmartFilters = list
+        config.save()
+    }
+
     // MARK: - In lavorazione
 
     func isWorking(_ chat: ChatSession) -> Bool { config.workingChats?.contains(chat.id) ?? false }

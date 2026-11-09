@@ -1,8 +1,60 @@
 import SwiftUI
 
+/// Ready-made filters shown as sidebar sections (OpenChamber's “smart sections”), hidden when empty.
+enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
+    case open, today, week, idle, heavy, untitled
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .open: return "Aperte adesso"
+        case .today: return "Oggi"
+        case .week: return "Ultimi 7 giorni"
+        case .idle: return "Ferme da 3+ giorni"
+        case .heavy: return "Pesanti"
+        case .untitled: return "Senza titolo"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .open: return "bolt.horizontal.fill"
+        case .today: return "sun.max.fill"
+        case .week: return "calendar"
+        case .idle: return "hourglass"
+        case .heavy: return "scalemass.fill"
+        case .untitled: return "textformat"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .open: return .green
+        case .today: return .yellow
+        case .week: return .blue
+        case .idle: return .gray
+        case .heavy: return .red
+        case .untitled: return .purple
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .open: return "Chat aperte in una sessione in corso"
+        case .today: return "Chat toccate oggi"
+        case .week: return "Chat toccate negli ultimi 7 giorni"
+        case .idle: return "In lavorazione ma senza attività da più di 3 giorni"
+        case .heavy: return "Chat che conviene snellire o dividere"
+        case .untitled: return "Chat senza un titolo tuo: dal menu contestuale Claude può suggerirne uno"
+        }
+    }
+}
+
 enum ChatScope: Hashable {
     case all
     case working
+    case smart(SmartFilter)
     case context(String)
     case unassigned
 }
@@ -28,6 +80,7 @@ enum DeckSection: Hashable {
         case "accounts": self = .accounts
         case "memory": self = .memory
         case "chats": self = .chats(.all)
+        case "working": self = .chats(.working)
         default: return nil
         }
     }
@@ -39,9 +92,89 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @State private var section: DeckSection? = .chats(.all)
     @State private var focusedChatID: String?
+    @State private var showPalette = false
+    @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
 
     var body: some View {
         NavigationSplitView {
+            sidebar
+        } detail: {
+            detail
+                .background(Theme.pageBackground ?? .clear)
+        }
+        // Theme colours are read statically: rebuild the views when the theme changes.
+        .id(appearance)
+        .preferredColorScheme(Theme.isWarm ? .dark : nil)
+        .tint(Theme.accent)
+        .overlay(alignment: .bottom) {
+            if let action = store.pendingUndo {
+                UndoToast(action: action, onUndo: { store.undo() }, onClose: {
+                    if store.pendingUndo?.id == action.id { store.pendingUndo = nil }
+                })
+                .padding(.bottom, 18)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.3), value: store.pendingUndo?.id)
+        .sheet(isPresented: $showPalette) {
+            CommandPalette(store: store, onSection: { section = $0 }) { id in
+                focusedChatID = id
+                section = .chats(.all)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
+        .onReceive(NotificationCenter.default.publisher(for: .showSection)) { note in
+            if let name = note.object as? String, let target = DeckSection(debugName: name) { section = target }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resetSmartFilters)) { _ in
+            for filter in SmartFilter.allCases { store.setSmartFilter(filter, hidden: false) }
+        }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(store: store) { showOnboarding = false }
+                .interactiveDismissDisabled()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in showOnboarding = true }
+        .onAppear {
+            store.start()
+            showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
+            updater.checkIfDue()
+            if UserDefaults.standard.bool(forKey: "debugInstallUpdate") {
+                Task { await updater.check(); await updater.install() }
+            }
+            let defaults = UserDefaults.standard
+            if let name = defaults.string(forKey: "debugSection"), let debug = DeckSection(debugName: name) { section = debug }
+            if defaults.bool(forKey: "debugPalette") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showPalette = true }
+            }
+            if let id = defaults.string(forKey: "debugChat") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { focusedChatID = id }
+            }
+        }
+        .alert(
+            "Aprire le chat direttamente in \(Launcher.terminalName)?",
+            isPresented: Binding(get: { store.pendingLaunch != nil }, set: { if !$0 { store.pendingLaunch = nil } }),
+            presenting: store.pendingLaunch
+        ) { launch in
+            Button("Attiva e apri") { store.enableDirectLaunchAndRun(launch) }
+                .keyboardShortcut(.defaultAction)
+            Button("Solo questa volta: copia il comando") {
+                Launcher.openTabCopyingCommand(launch.command, directory: launch.directory)
+            }
+            Button("Annulla", role: .cancel) {}
+        } message: { launch in
+            Text("Per avviare Claude nella nuova scheda l'app aggiunge a ~/.zshrc un piccolo blocco “AI Switchboard” che esegue il comando preparato per quella cartella (copia di sicurezza in ~/.ai-switchboard/zshrc.backup). Si disattiva da Account.\n\n\(launch.command)")
+        }
+        .alert(
+            "Operazione non riuscita",
+            isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
+    }
+
+    private var sidebar: some View {
             List(selection: $section) {
                 row("Nuova chat guidata", symbol: "sparkles", tint: Theme.coral)
                     .tag(DeckSection.compose)
@@ -66,6 +199,21 @@ struct ContentView: View {
                     let unassigned = store.chats.filter { store.context(for: $0) == nil }.count
                     row("Da assegnare", symbol: "tray.fill", tint: .gray, count: unassigned, highlight: unassigned > 0 ? .gray : nil)
                         .tag(DeckSection.chats(.unassigned))
+                }
+                let smart = SmartFilter.allCases.filter { !(store.config.hiddenSmartFilters ?? []).contains($0.rawValue) }
+                    .map { filter in (filter, store.chats.filter { store.matches($0, filter) }.count) }
+                    .filter { $0.1 > 0 }
+                if !smart.isEmpty {
+                    Section("Filtri") {
+                        ForEach(smart, id: \.0) { filter, count in
+                            row(filter.title, symbol: filter.symbol, tint: filter.tint, count: count)
+                                .tag(DeckSection.chats(.smart(filter)))
+                                .help(filter.hint)
+                                .contextMenu {
+                                    Button("Nascondi “\(filter.title)”") { store.setSmartFilter(filter, hidden: true) }
+                                }
+                        }
+                    }
                 }
                 Section("Organizza") {
                     let advice = store.chats.filter { store.hasAdvice(for: $0) }.count
@@ -129,7 +277,12 @@ struct ContentView: View {
                     .padding(12)
                 }
             }
-        } detail: {
+            .scrollContentBackground(Theme.isWarm ? .hidden : .automatic)
+            .background(Theme.sidebarBackground ?? .clear)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
             switch section ?? .chats(.all) {
             case .overview:
                 OverviewView(store: store) { id in
@@ -160,47 +313,6 @@ struct ContentView: View {
                     section = .chats(.all)
                 }
             }
-        }
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingView(store: store) { showOnboarding = false }
-                .interactiveDismissDisabled()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in showOnboarding = true }
-        .onAppear {
-            store.start()
-            showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
-            updater.checkIfDue()
-            if UserDefaults.standard.bool(forKey: "debugInstallUpdate") {
-                Task { await updater.check(); await updater.install() }
-            }
-            let defaults = UserDefaults.standard
-            if let name = defaults.string(forKey: "debugSection"), let debug = DeckSection(debugName: name) { section = debug }
-            if let id = defaults.string(forKey: "debugChat") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { focusedChatID = id }
-            }
-        }
-        .alert(
-            "Aprire le chat direttamente in \(Launcher.terminalName)?",
-            isPresented: Binding(get: { store.pendingLaunch != nil }, set: { if !$0 { store.pendingLaunch = nil } }),
-            presenting: store.pendingLaunch
-        ) { launch in
-            Button("Attiva e apri") { store.enableDirectLaunchAndRun(launch) }
-                .keyboardShortcut(.defaultAction)
-            Button("Solo questa volta: copia il comando") {
-                Launcher.openTabCopyingCommand(launch.command, directory: launch.directory)
-            }
-            Button("Annulla", role: .cancel) {}
-        } message: { launch in
-            Text("Per avviare Claude nella nuova scheda l'app aggiunge a ~/.zshrc un piccolo blocco “AI Switchboard” che esegue il comando preparato per quella cartella (copia di sicurezza in ~/.ai-switchboard/zshrc.backup). Si disattiva da Account.\n\n\(launch.command)")
-        }
-        .alert(
-            "Operazione non riuscita",
-            isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(store.errorMessage ?? "")
-        }
     }
 
     private func row(_ title: String, symbol: String, tint: Color, count: Int? = nil, highlight: Color? = nil) -> some View {

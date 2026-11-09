@@ -20,6 +20,10 @@ Per pubblicare una versione: `Scripts/release.sh 1.2.0 "Note di rilascio"` (impo
 
 - **Panoramica**: cosa chiede attenzione adesso — sessioni in attesa di una risposta, sessioni al lavoro, chat in lavorazione ferme da più di 3 giorni, chat la cui cartella non esiste più (da ricollegare con “Sposta in…”), chat che conviene snellire.
 - **In lavorazione**: la lista breve delle chat che stai seguendo, aggiunte e tolte da te (menu contestuale); nessuna esce da sola.
+- **Filtri** nella barra laterale: Aperte adesso, Oggi, Ultimi 7 giorni, Ferme da 3+ giorni, Pesanti, Senza titolo. Quelli vuoti non compaiono; ognuno si nasconde dal menu contestuale (*Vista → Mostra i filtri nascosti* per riaverli).
+- **⌘K**: cerca una chat o vai a una pagina; ↩ apre, ⌘↩ riprende la chat. Menu *Vai* con ⌘0 Panoramica, ⌘1 Tutte, ⌘2 In lavorazione, ⌘3 Consigli, ⌘4 Aree, ⌘5 Sessioni, ⇧⌘N Nuova chat guidata.
+- **Annulla**: dopo Cestino, Unisci, Dividi e Snellisci compare per 10 secondi un avviso con *Annulla* (⌘Z) che rimette le chat com'erano.
+- **Vista**: tema *Sistema* o *Caldo scuro* (palette ispirata a OpenChamber) e righe *Dettagliate* o *Compatte* (una riga con anello di contesto).
 - **Chat**: tutte le conversazioni di `~/.claude/projects` con titolo, progetto, account usati, numero di messaggi e dimensione. Ricerca per titolo o nel contenuto (grep), filtri per progetto e account, anteprima della conversazione.
   - **Riprendi** in Warp (o Terminale) scegliendo l'account: `CLAUDE_CONFIG_DIR=… claude --resume <id>` nella cartella giusta.
   - **Rinomina**: scrive gli stessi record di `/rename` (`custom-title`, `agent-name`).

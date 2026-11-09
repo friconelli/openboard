@@ -30,6 +30,7 @@ struct ChatsView: View {
             switch scope {
             case .all: break
             case .working: if !store.isWorking(chat) { return false }
+            case .smart(let filter): if !store.matches(chat, filter) { return false }
             case .context(let context): if store.context(for: chat) != context { return false }
             case .unassigned: if store.context(for: chat) != nil { return false }
             }
@@ -158,6 +159,7 @@ struct ChatsView: View {
                     }
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(Theme.isWarm ? .hidden : .automatic)
             }
         }
     }
@@ -285,6 +287,7 @@ struct ChatsView: View {
         switch scope {
         case .all: return "Tutte le chat"
         case .working: return "In lavorazione"
+        case .smart(let filter): return filter.title
         case .context(let context): return context
         case .unassigned: return "Da assegnare"
         }
@@ -350,8 +353,46 @@ private struct ChatRow: View {
     let description: String?
     let isWorking: Bool
     let contextTokens: Int
+    @AppStorage(RowDensity.key) private var density: RowDensity = .comfortable
 
     var body: some View {
+        if density == .compact { compactBody } else { comfortableBody }
+    }
+
+    /// One line per chat: status, title, folder, context ring and age.
+    private var compactBody: some View {
+        HStack(spacing: 8) {
+            Group {
+                if isActive {
+                    StatusDot(busy: false)
+                } else if isWorking {
+                    Image(systemName: "flag.fill").font(.caption2).foregroundStyle(.orange)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: 12)
+            Text(chat.displayTitle)
+                .lineLimit(1)
+                .help(description ?? chat.preview ?? "")
+            if hasAdvice {
+                Image(systemName: "lightbulb.fill").font(.caption2).foregroundStyle(.yellow)
+            }
+            Spacer(minLength: 6)
+            Text(chat.projectName)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            if contextTokens > 0 { ContextRing(tokens: contextTokens, size: 14) }
+            Text(relative(chat.modifiedAt))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 52, alignment: .trailing)
+        }
+        .padding(.vertical, 1)
+    }
+
+    private var comfortableBody: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if isActive {
@@ -402,7 +443,10 @@ private struct ChatRow: View {
                 }
                 Spacer()
                 if contextTokens > 0 {
-                    ContextMeter(tokens: contextTokens, compact: true)
+                    ContextRing(tokens: contextTokens)
+                    Text(ContextMeter.format(contextTokens))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 } else {
                     Text(formatBytes(chat.sizeBytes))
                         .font(.caption.monospacedDigit())

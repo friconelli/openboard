@@ -1,14 +1,36 @@
 import SwiftUI
 
 enum Theme {
-    static let coral = Color(red: 0.85, green: 0.47, blue: 0.34)
-    static let clay = Color(red: 0.60, green: 0.26, blue: 0.20)
-    static let brandGradient = LinearGradient(
-        colors: [coral, clay],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    static let cardBackground = Color(nsColor: .controlBackgroundColor)
+    /// “Caldo”: dark, warm and inky, after OpenChamber's default theme (OKLCH-harmonised neutrals
+    /// with an orange accent). “Sistema”: macOS light/dark with the original coral.
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system, warm
+        var id: String { rawValue }
+        var title: String { self == .system ? "Sistema" : "Caldo scuro" }
+    }
+
+    static let appearanceKey = "appearance"
+    static var appearance: Appearance {
+        Appearance(rawValue: UserDefaults.standard.string(forKey: appearanceKey) ?? "") ?? .system
+    }
+    static var isWarm: Bool { appearance == .warm }
+
+    static func hex(_ value: UInt32, alpha: Double = 1) -> Color {
+        Color(.sRGB, red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255,
+              blue: Double(value & 0xFF) / 255, opacity: alpha)
+    }
+
+    static var coral: Color { isWarm ? hex(0xDA7C47) : Color(red: 0.85, green: 0.47, blue: 0.34) }
+    static var accent: Color { coral }
+    static var clay: Color { isWarm ? hex(0xA8522A) : Color(red: 0.60, green: 0.26, blue: 0.20) }
+    static var brandGradient: LinearGradient {
+        LinearGradient(colors: [coral, clay], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+    static var cardBackground: Color { isWarm ? hex(0x1B1918) : Color(nsColor: .controlBackgroundColor) }
+    /// Page background; nil leaves the system one.
+    static var pageBackground: Color? { isWarm ? hex(0x120F0E) : nil }
+    static var sidebarBackground: Color? { isWarm ? hex(0x0E0C0B) : nil }
+    static var hairline: Color { isWarm ? hex(0x242323, alpha: 0.75) : Color.primary.opacity(0.08) }
     static let cardRadius: CGFloat = 16
 
     static func color(forContext context: String) -> Color {
@@ -323,4 +345,81 @@ struct ContextMeter: View {
         tokens >= 1_000_000 ? String(format: "%.1fM", Double(tokens) / 1_000_000)
             : tokens >= 1000 ? "\(tokens / 1000)k" : "\(tokens)"
     }
+}
+
+/// Bottom toast for the last undoable operation: message, “Annulla” and a bar that runs out.
+struct UndoToast: View {
+    let action: UndoAction
+    let onUndo: () -> Void
+    let onClose: () -> Void
+
+    static let duration: TimeInterval = 10
+    @State private var remaining: CGFloat = 1
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(action.message)
+                    .lineLimit(1)
+                Spacer(minLength: 12)
+                Button("Annulla", action: onUndo)
+                    .keyboardShortcut("z", modifiers: .command)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.accent)
+                    .fontWeight(.semibold)
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            GeometryReader { geometry in
+                Capsule().fill(Theme.accent.opacity(0.6))
+                    .frame(width: geometry.size.width * remaining, height: 2)
+            }
+            .frame(height: 2)
+        }
+        .frame(maxWidth: 460)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+        .task(id: action.id) {
+            remaining = 1
+            withAnimation(.linear(duration: Self.duration)) { remaining = 0 }
+            try? await Task.sleep(for: .seconds(Self.duration))
+            if !Task.isCancelled { onClose() }
+        }
+    }
+}
+
+/// OpenChamber-style context ring: 18 pt, 2 pt stroke, track at 30%, green/orange/red.
+struct ContextRing: View {
+    let tokens: Int
+    var size: CGFloat = 18
+
+    private var limit: Int { tokens > 200_000 ? 1_000_000 : 200_000 }
+    private var fraction: Double { min(1, Double(tokens) / Double(limit)) }
+    private var tint: Color { fraction < 0.5 ? .green : fraction < 0.8 ? .orange : .red }
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(tint.opacity(0.3), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: max(0.02, fraction))
+                .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
+        .help("Contesto alla ripresa: circa \(ContextMeter.format(tokens)) token su \(ContextMeter.format(limit)) (\(Int(fraction * 100))%)")
+    }
+}
+
+/// How tall chat rows are: description and badges, or one line like OpenChamber's minimal mode.
+enum RowDensity: String, CaseIterable, Identifiable {
+    case comfortable, compact
+    static let key = "rowDensity"
+    var id: String { rawValue }
+    var title: String { self == .comfortable ? "Dettagliate" : "Compatte" }
 }

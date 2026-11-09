@@ -9,6 +9,7 @@ struct AISwitchboardApp: App {
         .defaultSize(width: 1240, height: 780)
         .windowToolbarStyle(.unified)
         .commands {
+            DeckCommands()
             CommandGroup(after: .appInfo) {
                 Button("Controlla aggiornamenti…") {
                     Task { await Updater.shared.check() }

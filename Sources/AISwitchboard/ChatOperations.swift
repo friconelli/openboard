@@ -28,13 +28,21 @@ enum ChatOperations {
     // MARK: - Delete
 
     /// Moves the transcript and its side folder (tool results, subagents) to the Trash.
-    static func trash(_ session: ChatSession) throws {
-        let fm = FileManager.default
-        try fm.trashItem(at: session.fileURL, resultingItemURL: nil)
+    /// Returns where each item went, so the move can be undone.
+    @discardableResult
+    static func trash(_ session: ChatSession) throws -> [UndoAction.Restore] {
+        var moved = [try trashItem(session.fileURL)]
         let sideDir = session.fileURL.deletingPathExtension()
-        if fm.fileExists(atPath: sideDir.path) {
-            try fm.trashItem(at: sideDir, resultingItemURL: nil)
+        if FileManager.default.fileExists(atPath: sideDir.path) {
+            moved.append(try trashItem(sideDir))
         }
+        return moved
+    }
+
+    static func trashItem(_ url: URL) throws -> UndoAction.Restore {
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+        return UndoAction.Restore(trashed: (trashed as URL?) ?? url, original: url)
     }
 
     // MARK: - Helpers
@@ -77,5 +85,33 @@ enum ChatOperations {
             payload.append(0x0A)
         }
         try handle.write(contentsOf: payload)
+    }
+}
+
+/// How to take back the last operation that sent files to the Trash: put them back where they
+/// were, after sending to the Trash what the operation created (a merged chat, the slimmed copy).
+struct UndoAction: Identifiable {
+    struct Restore: Sendable {
+        let trashed: URL
+        let original: URL
+    }
+
+    let id = UUID()
+    let message: String
+    var restores: [Restore] = []
+    var trashFirst: [URL] = []
+
+    func perform() throws {
+        let fm = FileManager.default
+        for url in trashFirst where fm.fileExists(atPath: url.path) {
+            try fm.trashItem(at: url, resultingItemURL: nil)
+        }
+        for item in restores {
+            guard !fm.fileExists(atPath: item.original.path) else {
+                throw ChatOperationError.io("\(item.original.lastPathComponent) esiste già: lo lascio nel Cestino")
+            }
+            try fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.moveItem(at: item.trashed, to: item.original)
+        }
     }
 }

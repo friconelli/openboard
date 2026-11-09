@@ -541,6 +541,8 @@ enum SlimEngine {
         var tokensSaved = 0
         /// What slimming would still gain on the slimmed file, and the context left.
         var remaining: SlimEntry?
+        /// Where the original went in the Trash.
+        var trashedOriginal: URL?
     }
 
     static func apply(_ source: Source, plan: Plan) throws -> Outcome {
@@ -583,7 +585,9 @@ enum SlimEngine {
             if let trashed = trashed as URL? { try? fm.moveItem(at: trashed, to: url) }
             throw error
         }
-        return Outcome(before: source.sizeBytes, after: after)
+        var outcome = Outcome(before: source.sizeBytes, after: after)
+        outcome.trashedOriginal = trashed as URL?
+        return outcome
     }
 
     /// The slimmed file must hold the same conversation minus the removed messages, in the same
