@@ -175,7 +175,7 @@ final class LiveChat: ObservableObject {
         return blocks
     }
 
-    static func isLimitError(_ text: String) -> Bool {
+    nonisolated static func isLimitError(_ text: String) -> Bool {
         let lower = text.lowercased()
         return ["usage limit", "rate limit", "limit reached", "limite di utilizzo", "out of extra usage", "quota"].contains { lower.contains($0) }
     }
