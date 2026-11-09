@@ -26,6 +26,10 @@ enum Launcher {
 
     @discardableResult
     static func resume(_ session: ChatSession, account: ClaudeAccount, model: String? = nil, prompt: String? = nil) -> Outcome {
+        if session.isCodex {
+            let command = "codex resume \(session.id)\(model.map { " -m \($0)" } ?? "")"
+            return run(command + (prompt.map { " " + shellQuote($0) } ?? ""), in: session.workingDirectory)
+        }
         let command = "\(account.commandPrefix)\(model.map { " --model \($0)" } ?? "") --resume \(session.id)"
         return run(command + (prompt.map { " " + shellQuote($0) } ?? ""), in: session.workingDirectory)
     }

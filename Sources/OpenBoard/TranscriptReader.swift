@@ -7,6 +7,7 @@ enum TranscriptReader {
 
     /// `upTo`: bytes to read, to leave out a turn that is still being written (shown live instead).
     static func read(_ url: URL, limit: Int = 500, upTo: Int? = nil) -> (messages: [TranscriptMessage], truncated: Bool) {
+        if Codex.isCodexFile(url) { return Codex.read(url, limit: limit) }
         guard var data = try? Data(contentsOf: url, options: .alwaysMapped) else { return ([], false) }
         if let upTo, upTo < data.count { data = data.prefix(upTo) }
         var messages: [TranscriptMessage] = []

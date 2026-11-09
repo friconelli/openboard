@@ -413,7 +413,7 @@ final class DeckStore: ObservableObject {
     }
 
     func rename(_ chat: ChatSession, to title: String) {
-        perform { try ChatOperations.rename(chat, to: title) }
+        perform { chat.isCodex ? try Codex.rename(chat.id, to: title) : try ChatOperations.rename(chat, to: title) }
         // The list shows the new title at once; the re-index only confirms it.
         if let position = chats.firstIndex(where: { $0.id == chat.id }), errorMessage == nil {
             chats[position].title = title
@@ -692,9 +692,14 @@ final class DeckStore: ObservableObject {
             for account in accounts {
                 if let snapshot = try? await PlanUsage.fetch(account) { planUsage[account.id] = snapshot }
             }
+            if let codex = await Task.detached(priority: .utility, operation: { Codex.planUsage() }).value {
+                planUsage[Self.codexUsageKey] = codex
+            }
             planUsageLoading = false
         }
     }
+
+    static let codexUsageKey = "codex"
 
     func startPlanUsageMonitor() {
         refreshPlanUsage(force: true)
@@ -706,18 +711,33 @@ final class DeckStore: ObservableObject {
 
     func liveChat(for chat: ChatSession) -> LiveChat {
         if let existing = liveChats[chat.id] { return existing }
-        let live = LiveChat(chatID: chat.id, directory: chat.workingDirectory, fileURL: chat.fileURL)
+        let live = LiveChat(chatID: chat.id, directory: chat.workingDirectory, fileURL: chat.fileURL, provider: chat.agent)
+        live.onThreadStarted = { [weak self, weak live] placeholder in
+            guard let self, let live else { return }
+            // A new Codex chat gets its real id now: move the live chat and the list entry to it.
+            self.liveChats[placeholder] = nil
+            self.liveChats[live.chatID] = live
+            if let index = self.chats.firstIndex(where: { $0.id == placeholder }) {
+                let old = self.chats[index]
+                var renamed = ChatSession(id: live.chatID, fileURL: old.fileURL, projectDir: old.projectDir, cwd: old.cwd,
+                                          firstPrompt: old.firstPrompt, promptCount: old.promptCount, startedAt: old.startedAt,
+                                          modifiedAt: Date(), sizeBytes: 0)
+                renamed.provider = .codex
+                self.chats[index] = renamed
+            }
+            NotificationCenter.default.post(name: .focusChat, object: live.chatID)
+        }
         live.account = accounts(for: chat).last ?? preferredAccount
         let title = chat.displayTitle
         live.onTurnFinished = { [weak self, weak live] in
             self?.reloadChats()
-            self?.refreshPlanUsage()
+            self?.refreshPlanUsage(force: live?.provider == .codex)
             let last = live?.items.reversed().compactMap { item -> String? in
                 if case .text(_, let text) = item { return text }
                 if case .notice(_, let text, _) = item { return text }
                 return nil
             }.first
-            Notifier.shared.post(chatID: chat.id, title: "\(title): Claude ha finito",
+            Notifier.shared.post(chatID: live?.chatID ?? chat.id, title: "\(title): \(live?.provider.title ?? "Claude") ha finito",
                                  body: String((last ?? "Risposta pronta").replacingOccurrences(of: "\n", with: " ").prefix(180)))
         }
         live.onPermission = { permission in
@@ -746,21 +766,26 @@ final class DeckStore: ObservableObject {
 
     /// Starts a brand-new chat inside the app: it shows up in the list straight away and Claude
     /// creates the transcript with the id chosen here.
-    func startLiveChat(in folder: String, account: ClaudeAccount?, model: String?, mode: LiveChat.PermissionMode,
+    func startLiveChat(in folder: String, provider: Provider = .claude, account: ClaudeAccount?, model: String?,
+                       mode: LiveChat.PermissionMode, sandbox: LiveChat.CodexSandbox = .workspaceWrite,
                        message: String) -> ChatSession {
         let id = UUID().uuidString.lowercased()
-        let projectDir = Workspaces.encodedName(for: folder)
-        let file = ClaudePaths.projects.appendingPathComponent(projectDir).appendingPathComponent("\(id).jsonl")
-        let chat = ChatSession(id: id, fileURL: file, projectDir: projectDir, cwd: folder,
+        let projectDir = provider == .codex ? "codex" : Workspaces.encodedName(for: folder)
+        // Codex chooses where its file goes; until the first turn starts the entry is a placeholder.
+        let file = provider == .codex ? Codex.sessions.appendingPathComponent("pending-\(id).jsonl")
+            : ClaudePaths.projects.appendingPathComponent(projectDir).appendingPathComponent("\(id).jsonl")
+        var chat = ChatSession(id: id, fileURL: file, projectDir: projectDir, cwd: folder,
                                firstPrompt: message, promptCount: 1, startedAt: Date(), modifiedAt: Date(), sizeBytes: 0)
+        if provider == .codex { chat.provider = .codex }
         let live = liveChat(for: chat)
         live.isNew = true
         live.account = account
         live.model = model
         live.mode = mode
+        live.sandbox = sandbox
         chats.insert(chat, at: 0)
         live.send(message)
-        if let account, !account.isDefault {
+        if provider == .claude, let account, !account.isDefault {
             try? appendHistory(id, cwd: folder, title: String(message.prefix(80)), account: account)
         }
         return chat
@@ -802,6 +827,7 @@ final class DeckStore: ObservableObject {
         case .idle: return isWorking(chat) && age > 3 * 24 * 3600 && !activeSessionIDs.contains(chat.id)
         case .heavy: return hasAdvice(for: chat)
         case .untitled: return !chat.isCustomTitle && chat.promptCount > 0
+        case .codex: return chat.isCodex
         }
     }
 

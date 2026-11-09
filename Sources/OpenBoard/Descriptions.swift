@@ -20,7 +20,7 @@ final class DescriptionCache {
     }
 
     func needsDescription(_ chat: ChatSession) -> Bool {
-        guard chat.promptCount > 0 else { return false }
+        guard chat.promptCount > 0, !chat.isCodex else { return false }
         guard let entry = entries[chat.id] else { return true }
         return chat.promptCount - entry.promptCount >= 3
     }

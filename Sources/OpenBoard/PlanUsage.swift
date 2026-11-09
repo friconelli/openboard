@@ -119,13 +119,18 @@ struct PlanUsagePanel: View {
         // The default ~/.claude is usually the same login as one of the named accounts.
         let named = store.accounts.filter { !$0.isDefault }
         let accounts = (named.isEmpty ? store.accounts : named).filter { store.planUsage[$0.id] != nil }
-        if !accounts.isEmpty {
+        let codex = store.planUsage[DeckStore.codexUsageKey]
+        if !accounts.isEmpty || codex != nil {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(accounts) { account in
                         if let usage = store.planUsage[account.id] {
-                            accountBlock(account, usage, now: context.date)
+                            block(account.name, tint: Theme.color(forAccount: account.name), usage, now: context.date)
                         }
+                    }
+                    if let codex {
+                        block("Codex", tint: Theme.soft(.blue), codex, now: context.date)
+                            .help("Dall'ultima sessione di Codex, aggiornato \(relative(codex.updated))")
                     }
                 }
                 .padding(12)
@@ -140,11 +145,11 @@ struct PlanUsagePanel: View {
         }
     }
 
-    private func accountBlock(_ account: ClaudeAccount, _ usage: PlanUsage.Snapshot, now: Date) -> some View {
+    private func block(_ name: String, tint: Color, _ usage: PlanUsage.Snapshot, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(account.name)
+            Text(name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.color(forAccount: account.name))
+                .foregroundStyle(tint)
             if let session = usage.session { bar("5h", session, now: now) }
             if let week = usage.week { bar("Sett.", week, now: now) }
         }

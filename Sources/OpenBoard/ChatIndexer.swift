@@ -12,7 +12,7 @@ final class ChatIndexer {
 
     private var cache: [String: CacheEntry] = [:]
     // Bump the version when indexing rules change, so every transcript is re-indexed.
-    private let cacheURL = ClaudePaths.appSupport.appendingPathComponent("index-cache-v4.json")
+    private let cacheURL = ClaudePaths.appSupport.appendingPathComponent("index-cache-v5.json")
 
     init() {
         if let data = try? Data(contentsOf: cacheURL),
@@ -36,6 +36,9 @@ final class ChatIndexer {
                 files.append((file, dir.lastPathComponent))
             }
         }
+        // Codex sessions live in their own tree; projectDir "codex" marks them.
+        for file in Codex.sessionFiles() { files.append((file, "codex")) }
+        let codexTitles = Codex.titles()
 
         var sessions: [ChatSession] = []
         var fresh: [String: CacheEntry] = [:]
@@ -45,6 +48,18 @@ final class ChatIndexer {
                   let size = values.fileSize,
                   let modified = values.contentModificationDate else { continue }
 
+            if projectDir == "codex" {
+                // Titles live outside the file: a rename doesn't change it, so always re-read the title.
+                if var cached = cache[file.path]?.session, cache[file.path]?.size == Int64(size), cache[file.path]?.modified == modified {
+                    if let title = codexTitles[cached.id] { cached.title = title; cached.isCustomTitle = true }
+                    sessions.append(cached)
+                    fresh[file.path] = CacheEntry(size: Int64(size), modified: modified, session: cached)
+                } else if let session = Codex.indexFile(file, size: Int64(size), modified: modified, titles: codexTitles) {
+                    sessions.append(session)
+                    fresh[file.path] = CacheEntry(size: Int64(size), modified: modified, session: session)
+                }
+                continue
+            }
             if let cached = cache[file.path], cached.size == Int64(size), cached.modified == modified {
                 sessions.append(cached.session)
                 fresh[file.path] = cached

@@ -530,3 +530,25 @@ struct PlaceholderTextEditor: View {
         .font(.body)
     }
 }
+
+
+/// Small label for the agent a chat belongs to (only Codex is labelled: Claude is the default).
+struct ProviderBadge: View {
+    let provider: Provider
+    var iconOnly = false
+
+    var body: some View {
+        let tint = Theme.soft(.blue)
+        Group {
+            if iconOnly {
+                Image(systemName: provider.symbol).font(.caption2.weight(.semibold))
+            } else {
+                Label(provider.title, systemImage: provider.symbol).font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(tint.opacity(0.12), in: Capsule())
+            }
+        }
+        .foregroundStyle(tint)
+        .help(provider == .codex ? "Chat di Codex" : "Chat di Claude Code")
+    }
+}

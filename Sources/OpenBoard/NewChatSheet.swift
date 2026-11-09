@@ -16,6 +16,8 @@ struct NewChatSheet: View {
     @State private var model: String?
     @State private var mode: LiveChat.PermissionMode = .manual
     @State private var inTerminal = false
+    @State private var provider: Provider = .claude
+    @State private var sandbox: LiveChat.CodexSandbox = .workspaceWrite
     @FocusState private var messageFocused: Bool
 
     private struct Preset: Identifiable {
@@ -60,8 +62,20 @@ struct NewChatSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Su cosa lavoriamo\(folder == nil ? "?" : " in \(folderName)?")")
-                .font(.title2.bold())
+            HStack {
+                Text("Su cosa lavoriamo\(folder == nil ? "?" : " in \(folderName)?")")
+                    .font(.title2.bold())
+                Spacer()
+                if Codex.isInstalled {
+                    Picker("", selection: $provider) {
+                        ForEach(Provider.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Con quale agente lavorare")
+                }
+            }
 
             HStack(alignment: .top, spacing: 18) {
                 folderPicker
@@ -186,6 +200,15 @@ struct NewChatSheet: View {
 
     private var optionsRow: some View {
         HStack(spacing: 8) {
+            if provider == .codex {
+                Image(systemName: "shield").foregroundStyle(.secondary)
+                Picker("Sandbox", selection: $sandbox) {
+                    ForEach(LiveChat.CodexSandbox.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help(sandbox.detail)
+            } else {
             Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
             Picker("Account", selection: $accountID) {
                 ForEach(store.accounts) { Text($0.name).tag(Optional($0.id)) }
@@ -209,6 +232,7 @@ struct NewChatSheet: View {
                 .fixedSize()
                 .help(mode.detail)
             }
+            }
             Spacer(minLength: 0)
         }
         .font(.callout)
@@ -218,6 +242,11 @@ struct NewChatSheet: View {
         guard let folder else { return }
         let account = accountID.flatMap(store.account(id:))
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inTerminal, provider == .codex {
+            store.handle(Launcher.run("codex" + (text.isEmpty ? "" : " " + Launcher.shellQuote(text)), in: folder))
+            dismiss()
+            return
+        }
         if inTerminal {
             guard let account else { return }
             if text.isEmpty {
@@ -228,7 +257,8 @@ struct NewChatSheet: View {
             dismiss()
             return
         }
-        let chat = store.startLiveChat(in: folder, account: account, model: model, mode: mode, message: text)
+        let chat = store.startLiveChat(in: folder, provider: provider, account: account, model: provider == .codex ? nil : model,
+                                       mode: mode, sandbox: sandbox, message: text)
         onStarted(chat.id)
         dismiss()
     }

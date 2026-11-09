@@ -64,7 +64,7 @@ struct LiveItemsView: View {
         if live.isRunning && live.pendingPermission == nil && !live.items.contains(where: { if case .thinking = $0 { return true } else { return false } }) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Claude lavora…").font(.caption).foregroundStyle(.secondary)
+                Text("\(live.provider.title) lavora…").font(.caption).foregroundStyle(.secondary)
             }
             .padding(.leading, 26)
         }
@@ -192,7 +192,7 @@ struct ChatComposer: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            PlaceholderTextEditor(placeholder: live.isRunning ? "Claude sta lavorando…" : "Scrivi a Claude…", text: $text, padding: 0)
+            PlaceholderTextEditor(placeholder: live.isRunning ? "\(live.provider.title) sta lavorando…" : "Scrivi a \(live.provider.title)…", text: $text, padding: 0)
                     .frame(minHeight: 22, maxHeight: 140)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($focused)
@@ -203,6 +203,18 @@ struct ChatComposer: View {
                         return .handled
                     }
             HStack(spacing: 8) {
+                if live.provider == .codex {
+                    ProviderBadge(provider: .codex)
+                    Menu {
+                        ForEach(LiveChat.CodexSandbox.allCases) { sandbox in
+                            Button("\(sandbox.title) — \(sandbox.detail)") { live.sandbox = sandbox }
+                        }
+                    } label: {
+                        Label(live.sandbox.title, systemImage: live.sandbox == .fullAccess ? "exclamationmark.shield" : "shield")
+                    }
+                    .fixedSize()
+                    .help(live.sandbox.detail)
+                } else {
                 Menu {
                     ForEach(LiveChat.PermissionMode.allCases) { mode in
                         Button {
@@ -232,8 +244,9 @@ struct ChatComposer: View {
                     Label(live.account?.name ?? "Account", systemImage: "person.crop.circle")
                 }
                 .fixedSize()
+                }
                 Spacer()
-                if let id = live.account?.id, let usage = store.planUsage[id] {
+                if let id = live.provider == .codex ? DeckStore.codexUsageKey : live.account?.id, let usage = store.planUsage[id] {
                     quotaView(usage)
                 }
                 if live.contextTokens > 0 {

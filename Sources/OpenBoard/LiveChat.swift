@@ -64,9 +64,14 @@ final class LiveChat: ObservableObject {
         }
     }
 
-    let chatID: String
+    /// Codex only learns its id when the first turn starts: then this becomes the real one.
+    private(set) var chatID: String
     let directory: String
     let fileURL: URL
+    let provider: Provider
+    /// Codex: sandbox for the commands it runs (it has no interactive permission prompts).
+    @Published var sandbox: CodexSandbox = .workspaceWrite
+    var onThreadStarted: ((String) -> Void)?
     /// Size of the transcript when the current turn started: the history is read up to here
     /// while the turn is shown live.
     private(set) var historyCutoff: Int?
@@ -103,10 +108,11 @@ final class LiveChat: ObservableObject {
     /// Index in `items` of the text block being streamed, by content-block index.
     private var streaming: [Int: Int] = [:]
 
-    init(chatID: String, directory: String, fileURL: URL) {
+    init(chatID: String, directory: String, fileURL: URL, provider: Provider = .claude) {
         self.chatID = chatID
         self.directory = directory
         self.fileURL = fileURL
+        self.provider = provider
     }
 
     // MARK: - Sending
@@ -114,6 +120,7 @@ final class LiveChat: ObservableObject {
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isRunning else { return }
+        if provider == .codex { sendCodex(trimmed); return }
         do {
             try ensureProcess()
         } catch {
@@ -129,6 +136,7 @@ final class LiveChat: ObservableObject {
     func stop() {
         guard isRunning else { return }
         stopRequested = true
+        if provider == .codex { process?.interrupt(); return }
         write(["type": "control_request", "request_id": UUID().uuidString, "request": ["subtype": "interrupt"]])
         if let pending = pendingPermission { answer(pending, allow: false) }
         // If it doesn't stop by itself, the process goes; the next message starts a new one.
@@ -233,6 +241,13 @@ final class LiveChat: ObservableObject {
         process = nil
         input = nil
         startedWith = nil
+        if isRunning, provider == .codex {
+            // A Codex turn is one process: its exit ends the turn if turn.completed didn't.
+            let message = errors.trimmingCharacters(in: .whitespacesAndNewlines)
+            finishTurn(notice: stopRequested ? "Interrotto" : (message.isEmpty ? nil : "Codex: \(message.suffix(300))"),
+                       isError: !stopRequested && !message.isEmpty)
+            return
+        }
         if isRunning {
             let message = errors.trimmingCharacters(in: .whitespacesAndNewlines)
             finishTurn(notice: message.isEmpty ? "Claude si è fermato" : "Claude si è fermato: \(message.prefix(300))", isError: true)
@@ -254,6 +269,7 @@ final class LiveChat: ObservableObject {
     }
 
     private func handle(_ event: [String: Any]) {
+        if provider == .codex { handleCodex(event); return }
         switch event["type"] as? String {
         case "stream_event":
             guard event["parent_tool_use_id"] is NSNull || event["parent_tool_use_id"] == nil,
@@ -357,6 +373,127 @@ final class LiveChat: ObservableObject {
         onTurnFinished?()
     }
 
+    // MARK: - Codex
+
+    enum CodexSandbox: String, CaseIterable, Identifiable {
+        case readOnly = "read-only", workspaceWrite = "workspace-write", fullAccess = "danger-full-access"
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .readOnly: return "Sola lettura"
+            case .workspaceWrite: return "Scrive nella cartella"
+            case .fullAccess: return "Accesso completo"
+            }
+        }
+        var detail: String {
+            switch self {
+            case .readOnly: return "Codex legge e risponde, non cambia niente"
+            case .workspaceWrite: return "Può modificare i file della cartella della chat, non il resto del Mac"
+            case .fullAccess: return "Nessun limite: usalo solo se ti fidi del compito"
+            }
+        }
+    }
+
+    /// One `codex exec` per turn: a new thread the first time, `exec resume <id>` after.
+    private func sendCodex(_ text: String) {
+        guard let binary = Codex.binaryPath else {
+            items.append(.notice(id: UUID().uuidString, text: "Non trovo il comando codex", isError: true))
+            return
+        }
+        var arguments: [String]
+        if isNew {
+            arguments = ["exec", "--json", "--skip-git-repo-check", "-s", sandbox.rawValue, "-C", directory]
+        } else {
+            arguments = ["exec", "resume", chatID, "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"\(sandbox.rawValue)\""]
+        }
+        if let model { arguments += ["-m", model] }
+        arguments.append(text)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        let stdout = Pipe(), stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        process.standardInput = FileHandle.nullDevice
+        stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            Task { @MainActor in self?.receive(data) }
+        }
+        process.terminationHandler = { [weak self] finished in
+            let errors = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            Task { @MainActor in self?.ended(finished, errors: errors) }
+        }
+        items.append(.user(id: UUID().uuidString, text: text))
+        historyCutoff = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
+        do {
+            try process.run()
+        } catch {
+            items.append(.notice(id: UUID().uuidString, text: "Non riesco ad avviare Codex: \(error.localizedDescription)", isError: true))
+            return
+        }
+        LiveChat.remember(process.processIdentifier)
+        self.process = process
+        isRunning = true
+    }
+
+    private func handleCodex(_ event: [String: Any]) {
+        switch event["type"] as? String {
+        case "thread.started":
+            if let id = event["thread_id"] as? String, isNew {
+                isNew = false
+                let old = chatID
+                chatID = id
+                onThreadStarted?(old)
+            }
+        case "item.started", "item.updated", "item.completed":
+            guard let item = event["item"] as? [String: Any], let id = item["id"] as? String else { return }
+            let done = event["type"] as? String == "item.completed"
+            switch item["type"] as? String {
+            case "agent_message":
+                guard done, let text = item["text"] as? String else { return }
+                items.append(.text(id: "codex-\(id)-\(UUID().uuidString)", text: text))
+            case "command_execution":
+                let command = (item["command"] as? String ?? "").replacingOccurrences(of: "/bin/zsh -lc ", with: "")
+                upsertTool(id: id, name: "Shell", summary: command, result: done ? (item["aggregated_output"] as? String ?? "") : nil,
+                           isError: done && ((item["exit_code"] as? NSNumber)?.intValue ?? 0) != 0)
+            case "file_change":
+                let paths = (item["changes"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+                    .map { $0.replacingOccurrences(of: ClaudePaths.home.path, with: "~") }
+                upsertTool(id: id, name: "Modifica", summary: paths.joined(separator: ", "),
+                           result: done ? (item["status"] as? String ?? "") : nil, isError: done && item["status"] as? String == "failed")
+            case "web_search":
+                upsertTool(id: id, name: "Ricerca web", summary: item["query"] as? String ?? "", result: done ? "" : nil, isError: false)
+            case "mcp_tool_call":
+                upsertTool(id: id, name: item["tool"] as? String ?? "MCP", summary: item["server"] as? String ?? "", result: done ? "" : nil, isError: false)
+            case "error":
+                if done { items.append(.notice(id: UUID().uuidString, text: item["message"] as? String ?? "Errore", isError: true)) }
+            default:
+                break
+            }
+        case "turn.completed":
+            if let usage = event["usage"] as? [String: Any], let input = (usage["input_tokens"] as? NSNumber)?.intValue {
+                contextTokens = input
+            }
+            finishTurn(notice: nil)
+        case "turn.failed", "error":
+            let message = ((event["error"] as? [String: Any])?["message"] as? String) ?? event["message"] as? String ?? "Errore di Codex"
+            finishTurn(notice: message, isError: true)
+        default:
+            break
+        }
+    }
+
+    private func upsertTool(id: String, name: String, summary: String, result: String?, isError: Bool) {
+        if let index = items.firstIndex(where: { $0.id == id }), case .tool(var tool) = items[index] {
+            if let result { tool.result = result; tool.isError = isError }
+            items[index] = .tool(tool)
+        } else {
+            items.append(.tool(Tool(id: id, name: name, summary: String(summary.prefix(160)), result: result, isError: isError)))
+        }
+    }
+
     // MARK: - Leftover processes
 
     /// Claude Code processes started by the app, so that ones left behind by a crash (still
@@ -381,7 +518,7 @@ final class LiveChat: ObservableObject {
             var buffer = [CChar](repeating: 0, count: 4096)
             let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
             let path = length > 0 ? String(cString: buffer) : ""
-            if path.hasSuffix("/claude") || path.contains("/claude/") { kill(pid, SIGTERM) }
+            if path.hasSuffix("/claude") || path.contains("/claude/") || path.hasSuffix("/codex") || path.contains("/codex/") { kill(pid, SIGTERM) }
         }
         save([])
     }

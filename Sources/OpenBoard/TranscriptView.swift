@@ -135,12 +135,16 @@ struct TranscriptView: View {
             }
 
             FlowLayout(spacing: 8, lineSpacing: 6) {
-                ToolButton(title: "Dividi", symbol: "scissors") { actions.split(chat) }
-                    .help("Dividi in più chat, una per argomento")
-                ToolButton(title: "Snellisci", symbol: "arrow.down.right.and.arrow.up.left") { actions.slim([chat]) }
-                    .help("Togli dati tecnici, immagini e output temporanei")
-                ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move([chat]) }
-                    .help("Sposta in un'area di lavoro o in un progetto")
+                if chat.isCodex {
+                    ProviderBadge(provider: .codex)
+                } else {
+                    ToolButton(title: "Dividi", symbol: "scissors") { actions.split(chat) }
+                        .help("Dividi in più chat, una per argomento")
+                    ToolButton(title: "Snellisci", symbol: "arrow.down.right.and.arrow.up.left") { actions.slim([chat]) }
+                        .help("Togli dati tecnici, immagini e output temporanei")
+                    ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move([chat]) }
+                        .help("Sposta in un'area di lavoro o in un progetto")
+                }
                 ToolButton(title: "Rinomina", symbol: "pencil") { actions.rename(chat) }
                 ToolButton(title: "File", symbol: "doc.on.doc") { showFiles = true }
                     .help("File modificati in questa chat, con le differenze")

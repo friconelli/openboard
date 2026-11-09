@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Ready-made filters shown as sidebar sections (OpenChamber's “smart sections”), hidden when empty.
 enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
-    case open, today, week, idle, heavy, untitled
+    case open, today, week, idle, heavy, untitled, codex
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
         case .idle: return "Ferme da 3+ giorni"
         case .heavy: return "Pesanti"
         case .untitled: return "Senza titolo"
+        case .codex: return "Codex"
         }
     }
 
@@ -25,6 +26,7 @@ enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
         case .idle: return "hourglass"
         case .heavy: return "scalemass.fill"
         case .untitled: return "textformat"
+        case .codex: return Provider.codex.symbol
         }
     }
 
@@ -36,6 +38,7 @@ enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
         case .idle: return .gray
         case .heavy: return .red
         case .untitled: return .purple
+        case .codex: return .blue
         }
     }
 
@@ -47,6 +50,7 @@ enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
         case .idle: return "In lavorazione ma senza attività da più di 3 giorni"
         case .heavy: return "Chat che conviene snellire o dividere"
         case .untitled: return "Chat senza un titolo tuo: dal menu contestuale Claude può suggerirne uno"
+        case .codex: return "Conversazioni di Codex"
         }
     }
 }
@@ -126,6 +130,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in showNewChat = true }
+        .onReceive(NotificationCenter.default.publisher(for: .focusChat)) { note in
+            if let id = note.object as? String { section = .chats(.all); focusedChatID = id }
+        }
         .sheet(isPresented: $showNewChat) {
             NewChatSheet(store: store) { id in
                 section = .chats(.all)

@@ -18,6 +18,24 @@ struct ResumeButton: View {
     var large = false
 
     var body: some View {
+        if chat.isCodex {
+            Button {
+                if let account = store.preferredAccount ?? store.accounts.first { store.resume(chat, with: account) }
+            } label: {
+                Label("Riprendi", systemImage: "play.fill")
+            }
+            .prominentButton()
+            .tint(Theme.coral)
+            .controlSize(large ? .large : .regular)
+            .fixedSize()
+            .help("Riprendi in \(Launcher.terminalName) con codex resume")
+        } else {
+            claudeButton
+        }
+    }
+
+    @ViewBuilder
+    private var claudeButton: some View {
         let recommendation = store.recommendation(for: chat)
         let automatic = store.useRecommendedModel ? recommendation?.tier : nil
         Menu {
@@ -73,7 +91,7 @@ struct ChatHealthView: View {
     let actions: ChatActions
 
     var body: some View {
-        if let usage = store.usage[chat.id] {
+        if !chat.isCodex, let usage = store.usage[chat.id] {
             let insights = store.insights(for: chat)
             let context = store.contextTokens(for: chat)
             let recommendation = ModelAdvisor.recommend(usage, prompts: chat.promptCount)

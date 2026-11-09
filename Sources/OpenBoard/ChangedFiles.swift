@@ -20,6 +20,7 @@ enum ChangedFiles {
     private static let editTools: Set<String> = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
 
     static func scan(_ url: URL) -> [File] {
+        if Codex.isCodexFile(url) { return scanCodex(url) }
         guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return [] }
         var files: [String: File] = [:]
         let needle = Array(#""tool_use""#.utf8)
@@ -51,6 +52,29 @@ enum ChangedFiles {
                     file.lastChange = date ?? file.lastChange
                     files[path] = file
                 }
+            }
+        }
+        return files.values.sorted { ($0.lastChange ?? .distantPast) > ($1.lastChange ?? .distantPast) }
+    }
+
+    /// Codex records each change as `FileChange` with a map path → {type, content | unified_diff}.
+    static func scanCodex(_ url: URL) -> [File] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var files: [String: File] = [:]
+        for line in text.split(separator: "\n") where line.contains("\"FileChange\"") {
+            guard let json = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  let item = (json["payload"] as? [String: Any])?["item"] as? [String: Any],
+                  item["type"] as? String == "FileChange",
+                  let changes = item["changes"] as? [String: Any] else { continue }
+            let date = (json["timestamp"] as? String).flatMap { isoFormatter.date(from: $0) }
+            for (path, value) in changes {
+                let change = value as? [String: Any] ?? [:]
+                var file = files[path] ?? File(path: path, edits: [], lastChange: nil)
+                let diff = change["unified_diff"] as? String
+                let content = change["content"] as? String
+                file.edits.append(Edit(tool: change["type"] as? String ?? "update", old: "", new: diff ?? content ?? ""))
+                file.lastChange = date ?? file.lastChange
+                files[path] = file
             }
         }
         return files.values.sorted { ($0.lastChange ?? .distantPast) > ($1.lastChange ?? .distantPast) }

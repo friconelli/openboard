@@ -5,6 +5,7 @@ extension Notification.Name {
     static let showSection = Notification.Name("showSection")
     static let resetSmartFilters = Notification.Name("resetSmartFilters")
     static let newChat = Notification.Name("newChat")
+    static let focusChat = Notification.Name("focusChat")
 }
 
 /// Menu bar commands: the palette, jumps to sections and the look of the app.

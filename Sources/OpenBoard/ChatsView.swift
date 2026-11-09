@@ -247,28 +247,35 @@ struct ChatsView: View {
                 }
             }
             Button("Rinomina…") { renameTarget = chat }
-            Button("Suggerisci titolo con Claude") {
-                Task { await store.suggestTitle(for: chat, account: store.preferredAccount) }
+            if !chat.isCodex {
+                Button("Suggerisci titolo con Claude") {
+                    Task { await store.suggestTitle(for: chat, account: store.preferredAccount) }
+                }
+                .disabled(chat.promptCount == 0)
+                Button("Dividi in argomenti…") { splitTarget = chat }
+                Button("Rigenera descrizione") { store.refreshDescriptions(force: [chat]) }
             }
-            .disabled(chat.promptCount == 0)
-            Button("Dividi in argomenti…") { splitTarget = chat }
-            Button("Rigenera descrizione") { store.refreshDescriptions(force: [chat]) }
             Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
             Button("Copia ID sessione") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(chat.id, forType: .string)
             }
-        } else {
+        } else if !targets.contains(where: \.isCodex) {
             Button("Unisci \(targets.count) chat…") { mergeTargets = targets }
         }
-        Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { slimTargets = targets }
+        // Merge, slim and move know Claude Code's transcript format only.
+        if !targets.contains(where: \.isCodex) {
+            Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { slimTargets = targets }
+        }
         Divider()
         if targets.allSatisfy(store.isWorking) {
             Button("Togli da In lavorazione") { store.setWorking(false, for: targets) }
         } else {
             Button("Segna in lavorazione") { store.setWorking(true, for: targets) }
         }
-        Button("Sposta in…") { moveTargets = targets }
+        if !targets.contains(where: \.isCodex) {
+            Button("Sposta in…") { moveTargets = targets }
+        }
         Menu("Contesto") { contextItems(for: targets) }
         Divider()
         Button("Sposta nel Cestino", role: .destructive) { trashTargets = targets }
@@ -370,6 +377,7 @@ private struct ChatRow: View {
                 }
             }
             .frame(width: 12)
+            if chat.isCodex { ProviderBadge(provider: .codex, iconOnly: true) }
             Text(chat.displayTitle)
                 .lineLimit(1)
                 .help(description ?? chat.preview ?? "")
@@ -436,8 +444,12 @@ private struct ChatRow: View {
                 if showContext || context == nil {
                     ContextBadge(context: context)
                 }
-                ForEach(accounts) { account in
-                    AccountBadge(account: account, compact: true)
+                if chat.isCodex {
+                    ProviderBadge(provider: .codex)
+                } else {
+                    ForEach(accounts) { account in
+                        AccountBadge(account: account, compact: true)
+                    }
                 }
                 Spacer()
                 if contextTokens > 0 {
@@ -474,12 +486,14 @@ private struct MultiSelectionView: View {
                 ) { EmptyView() }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
-                    Button { actions.merge(chats) } label: { Label("Unisci", systemImage: "arrow.triangle.merge") }
-                        .prominentButton()
-                        .tint(Theme.coral)
-                        .help("Unisci in una sola chat")
-                    ToolButton(title: "Snellisci", symbol: "arrow.down.right.and.arrow.up.left") { actions.slim(chats) }
-                    ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move(chats) }
+                    if !chats.contains(where: \.isCodex) {
+                        Button { actions.merge(chats) } label: { Label("Unisci", systemImage: "arrow.triangle.merge") }
+                            .prominentButton()
+                            .tint(Theme.coral)
+                            .help("Unisci in una sola chat")
+                        ToolButton(title: "Snellisci", symbol: "arrow.down.right.and.arrow.up.left") { actions.slim(chats) }
+                        ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move(chats) }
+                    }
                     Menu {
                         ForEach(store.config.contexts, id: \.self) { context in
                             Button(context) { store.setContext(context, for: chats) }

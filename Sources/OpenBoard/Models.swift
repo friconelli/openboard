@@ -45,6 +45,8 @@ struct ChatSession: Identifiable, Hashable, Codable {
     var startedAt: Date?
     var modifiedAt: Date
     var sizeBytes: Int64
+    /// nil for Claude Code (indexes saved before Codex support have no value).
+    var provider: Provider?
 
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
