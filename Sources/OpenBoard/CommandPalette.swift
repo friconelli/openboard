@@ -35,6 +35,7 @@ struct DeckCommands: Commands {
             Button("Consigli") { go("insights") }.keyboardShortcut("3")
             Button("Aree di lavoro") { go("areas") }.keyboardShortcut("4")
             Button("Sessioni attive") { go("active") }.keyboardShortcut("5")
+            Button("Attività programmate") { go("tasks") }.keyboardShortcut("6")
             Divider()
             Button("Nuova chat guidata") { go("compose") }.keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Terminale della chat") { NotificationCenter.default.post(name: .toggleTerminal, object: nil) }
@@ -89,6 +90,7 @@ struct CommandPalette: View {
             ("Memoria", "brain.head.profile", .purple, .memory),
             ("Sessioni attive", "bolt.horizontal.fill", .green, .active),
             ("Account", "person.2.fill", .blue, .accounts),
+            ("Attività programmate", "clock.arrow.circlepath", .teal, .tasks),
         ] + SmartFilter.allCases.map { ($0.title, $0.symbol, $0.tint, .chats(.smart($0))) }
         return pages.map { Item(id: "s-\($0.0)", title: $0.0, subtitle: nil, symbol: $0.1, tint: $0.2, kind: .section($0.3)) }
     }

@@ -72,6 +72,7 @@ enum DeckSection: Hashable {
     case memory
     case insights
     case compose
+    case tasks
 
     /// For launching on a given page (`-debugSection insights`), used for screenshots.
     init?(debugName: String) {
@@ -85,6 +86,7 @@ enum DeckSection: Hashable {
         case "memory": self = .memory
         case "chats": self = .chats(.all)
         case "working": self = .chats(.working)
+        case "tasks": self = .tasks
         default: return nil
         }
     }
@@ -253,6 +255,9 @@ struct ContentView: View {
                     row("Consigli", symbol: "lightbulb.fill", tint: .yellow, count: advice, highlight: advice > 0 ? .orange : nil)
                         .tag(DeckSection.insights)
                         .help("Chat da snellire o dividere e modello giusto per ogni lavoro")
+                    row("Attività", symbol: "clock.arrow.circlepath", tint: .teal, count: store.tasks.filter(\.enabled).count)
+                        .tag(DeckSection.tasks)
+                        .help("Messaggi a Claude o Codex a orari fissi")
                     row("Aree di lavoro", symbol: "folder.fill", tint: .orange)
                         .tag(DeckSection.areas)
                         .help("Cartelle da cui far partire le chat, per contesto")
@@ -341,6 +346,8 @@ struct ContentView: View {
                     focusedChatID = id
                     section = .chats(.all)
                 }
+            case .tasks:
+                TasksView(store: store)
             case .compose:
                 ComposeView(store: store) { id in
                     focusedChatID = id

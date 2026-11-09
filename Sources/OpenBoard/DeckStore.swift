@@ -19,6 +19,7 @@ final class DeckStore: ObservableObject {
     @Published private(set) var liveChats: [String: LiveChat] = [:]
     /// Plan usage (5-hour session and week) per account id.
     @Published var planUsage: [String: PlanUsage.Snapshot] = [:]
+    @Published var tasks: [ScheduledTask] = TaskScheduler.load()
     private var planUsageTimer: Timer?
     private var planUsageLoading = false
     @Published var memoryFiles: [MemoryFile] = []
@@ -696,6 +697,32 @@ final class DeckStore: ObservableObject {
                 planUsage[Self.codexUsageKey] = codex
             }
             planUsageLoading = false
+        }
+    }
+
+    // MARK: - Scheduled tasks
+
+    func saveTask(_ task: ScheduledTask) {
+        if let index = tasks.firstIndex(where: { $0.id == task.id }) { tasks[index] = task } else { tasks.append(task) }
+        TaskScheduler.save(tasks)
+        do {
+            try TaskScheduler.install(task, account: task.accountID.flatMap(account(id:)))
+        } catch {
+            errorMessage = "Attività salvata ma non programmata.\n\n\(error.localizedDescription)"
+        }
+    }
+
+    func deleteTask(_ task: ScheduledTask) {
+        TaskScheduler.remove(task)
+        tasks.removeAll { $0.id == task.id }
+        TaskScheduler.save(tasks)
+    }
+
+    func runTaskNow(_ task: ScheduledTask) {
+        do {
+            try TaskScheduler.runNow(task, account: task.accountID.flatMap(account(id:)))
+        } catch {
+            errorMessage = "Non sono riuscito ad avviare l'attività.\n\n\(error.localizedDescription)"
         }
     }
 
