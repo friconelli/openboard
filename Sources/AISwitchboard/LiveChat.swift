@@ -70,6 +70,8 @@ final class LiveChat: ObservableObject {
     /// Size of the transcript when the current turn started: the history is read up to here
     /// while the turn is shown live.
     private(set) var historyCutoff: Int?
+    /// A chat that doesn't exist yet: the first process creates it with this id.
+    var isNew = false
 
     @Published private(set) var items: [Item] = []
     @Published private(set) var isRunning = false
@@ -186,7 +188,7 @@ final class LiveChat: ObservableObject {
         process.executableURL = URL(fileURLWithPath: binary)
         var arguments = [
             "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-            "--include-partial-messages", "--resume", chatID,
+            "--include-partial-messages", isNew ? "--session-id" : "--resume", chatID,
             "--permission-mode", mode.rawValue,
             "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
         ]
@@ -212,6 +214,7 @@ final class LiveChat: ObservableObject {
         }
         try process.run()
         LiveChat.remember(process.processIdentifier)
+        isNew = false
         self.process = process
         self.input = stdin.fileHandleForWriting
         self.startedWith = wanted

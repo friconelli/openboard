@@ -93,6 +93,7 @@ struct ContentView: View {
     @State private var section: DeckSection? = .chats(.all)
     @State private var focusedChatID: String?
     @State private var showPalette = false
+    @State private var showNewChat = false
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
     @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
 
@@ -124,6 +125,16 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
+        .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in showNewChat = true }
+        .sheet(isPresented: $showNewChat) {
+            NewChatSheet(store: store) { id in
+                section = .chats(.all)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedChatID = id }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshPlanUsage()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             store.closeAllLiveChats()
         }
@@ -141,6 +152,7 @@ struct ContentView: View {
         .onAppear {
             LiveChat.closeLeftovers()
             store.start()
+            store.startPlanUsageMonitor()
             showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
             updater.checkIfDue()
             if UserDefaults.standard.bool(forKey: "debugInstallUpdate") {
@@ -148,6 +160,9 @@ struct ContentView: View {
             }
             let defaults = UserDefaults.standard
             if let name = defaults.string(forKey: "debugSection"), let debug = DeckSection(debugName: name) { section = debug }
+            if defaults.bool(forKey: "debugNewChat") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showNewChat = true }
+            }
             if defaults.bool(forKey: "debugPalette") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showPalette = true }
             }
@@ -241,6 +256,7 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
             .safeAreaInset(edge: .bottom) {
+                PlanUsagePanel(store: store)
                 if updater.updateAvailable, let latest = updater.latest {
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Versione \(latest.version) disponibile", systemImage: "arrow.down.circle.fill")

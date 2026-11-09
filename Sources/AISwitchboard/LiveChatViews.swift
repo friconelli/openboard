@@ -192,17 +192,7 @@ struct ChatComposer: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text(live.isRunning ? "Claude sta lavorando…" : "Scrivi a Claude…")
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 1)
-                        .padding(.leading, 5)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: $text)
-                    .scrollContentBackground(.hidden)
-                    .font(.body)
+            PlaceholderTextEditor(placeholder: live.isRunning ? "Claude sta lavorando…" : "Scrivi a Claude…", text: $text, padding: 0)
                     .frame(minHeight: 22, maxHeight: 140)
                     .fixedSize(horizontal: false, vertical: true)
                     .focused($focused)
@@ -212,7 +202,6 @@ struct ChatComposer: View {
                         submit()
                         return .handled
                     }
-            }
             HStack(spacing: 8) {
                 Menu {
                     ForEach(LiveChat.PermissionMode.allCases) { mode in
@@ -244,8 +233,8 @@ struct ChatComposer: View {
                 }
                 .fixedSize()
                 Spacer()
-                if let id = live.account?.id, let quota = store.quotas[id] {
-                    quotaView(quota)
+                if let id = live.account?.id, let usage = store.planUsage[id] {
+                    quotaView(usage)
                 }
                 if live.contextTokens > 0 {
                     ContextRing(tokens: live.contextTokens, size: 14)
@@ -288,14 +277,14 @@ struct ChatComposer: View {
         live.send(message)
     }
 
-    private func quotaView(_ quota: DeckStore.Quota) -> some View {
+    private func quotaView(_ usage: PlanUsage.Snapshot) -> some View {
         HStack(spacing: 6) {
-            if let five = quota.fiveHour { Text("5h \(Int(five * 100))%").foregroundStyle(five > 0.8 ? Theme.danger : .secondary) }
-            if let seven = quota.sevenDay { Text("7g \(Int(seven * 100))%").foregroundStyle(seven > 0.8 ? Theme.danger : .secondary) }
+            if let five = usage.session { Text("5h \(five.percent)%").foregroundStyle(five.percent > 80 ? Theme.danger : .secondary) }
+            if let week = usage.week { Text("sett. \(week.percent)%").foregroundStyle(week.percent > 80 ? Theme.danger : .secondary) }
         }
         .font(.caption.monospacedDigit())
         .lineLimit(1)
         .fixedSize()
-        .help(quota.fiveHourResets.map { "Limite di 5 ore: si azzera \($0.formatted(date: .omitted, time: .shortened))" } ?? "Consumo dei limiti dell'account")
+        .help(usage.session?.resets.map { "Limite di 5 ore: si azzera \(PlanUsage.countdown(to: $0))" } ?? "Consumo del piano")
     }
 }

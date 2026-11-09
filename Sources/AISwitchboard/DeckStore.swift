@@ -17,8 +17,10 @@ final class DeckStore: ObservableObject {
     @Published var pendingUndo: UndoAction?
     /// Chats being talked to from inside the app, kept alive while you look at other chats.
     @Published private(set) var liveChats: [String: LiveChat] = [:]
-    /// Latest 5-hour / 7-day usage Claude Code reported, per account id.
-    @Published var quotas: [String: Quota] = [:]
+    /// Plan usage (5-hour session and week) per account id.
+    @Published var planUsage: [String: PlanUsage.Snapshot] = [:]
+    private var planUsageTimer: Timer?
+    private var planUsageLoading = false
     @Published var memoryFiles: [MemoryFile] = []
     @Published var config = SwitchboardConfig.load()
     @Published var areas: [WorkFolder] = []
@@ -388,7 +390,7 @@ final class DeckStore: ObservableObject {
         directLaunchEnabled = ShellHook.isInstalled
     }
 
-    private func handle(_ outcome: Launcher.Outcome) {
+    func handle(_ outcome: Launcher.Outcome) {
         if case .needsDirectLaunch(let command, let directory) = outcome {
             pendingLaunch = PendingLaunch(command: command, directory: directory)
         }
@@ -670,30 +672,92 @@ final class DeckStore: ObservableObject {
     /// `nil` resets the chat to its folder's context.
     // MARK: - Chat inside the app
 
-    struct Quota {
-        var fiveHour: Double?
-        var sevenDay: Double?
-        var fiveHourResets: Date?
-        var updated = Date()
+    /// Reads `/usage` for every logged-in account; at most once a minute unless forced.
+    func refreshPlanUsage(force: Bool = false) {
+        guard !planUsageLoading else { return }
+        let newest = planUsage.values.map(\.updated).max() ?? .distantPast
+        guard force || Date().timeIntervalSince(newest) > 60 else { return }
+        planUsageLoading = true
+        let accounts = self.accounts
+        Task {
+            for account in accounts {
+                if let snapshot = try? await PlanUsage.fetch(account) { planUsage[account.id] = snapshot }
+            }
+            planUsageLoading = false
+        }
+    }
+
+    func startPlanUsageMonitor() {
+        refreshPlanUsage(force: true)
+        planUsageTimer?.invalidate()
+        planUsageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshPlanUsage() }
+        }
     }
 
     func liveChat(for chat: ChatSession) -> LiveChat {
         if let existing = liveChats[chat.id] { return existing }
         let live = LiveChat(chatID: chat.id, directory: chat.workingDirectory, fileURL: chat.fileURL)
         live.account = accounts(for: chat).last ?? preferredAccount
-        live.onTurnFinished = { [weak self] in self?.reloadChats() }
+        live.onTurnFinished = { [weak self] in
+            self?.reloadChats()
+            self?.refreshPlanUsage()
+        }
         live.onRateLimit = { [weak self, weak live] info in
             guard let self, let id = live?.account?.id else { return }
+            // Every answer reports the same windows: keep the panel current while chatting.
             let windows = info["unifiedWindows"] as? [String: Any] ?? [:]
-            func utilization(_ key: String) -> Double? {
-                ((windows[key] as? [String: Any])?["utilization"] as? NSNumber)?.doubleValue
+            func window(_ key: String) -> PlanUsage.Window? {
+                guard let entry = windows[key] as? [String: Any],
+                      let utilization = (entry["utilization"] as? NSNumber)?.doubleValue else { return nil }
+                return PlanUsage.Window(percent: Int((utilization * 100).rounded()),
+                                        resets: (entry["resetsAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
             }
-            let resets = ((windows["five_hour"] as? [String: Any])?["resetsAt"] as? NSNumber)
-                .map { Date(timeIntervalSince1970: $0.doubleValue) }
-            self.quotas[id] = Quota(fiveHour: utilization("five_hour"), sevenDay: utilization("seven_day"), fiveHourResets: resets)
+            var snapshot = self.planUsage[id] ?? PlanUsage.Snapshot()
+            if let session = window("five_hour") { snapshot.session = session }
+            if let week = window("seven_day") { snapshot.week = week }
+            snapshot.updated = Date()
+            self.planUsage[id] = snapshot
         }
         liveChats[chat.id] = live
         return live
+    }
+
+    /// Starts a brand-new chat inside the app: it shows up in the list straight away and Claude
+    /// creates the transcript with the id chosen here.
+    func startLiveChat(in folder: String, account: ClaudeAccount?, model: String?, mode: LiveChat.PermissionMode,
+                       message: String) -> ChatSession {
+        let id = UUID().uuidString.lowercased()
+        let projectDir = Workspaces.encodedName(for: folder)
+        let file = ClaudePaths.projects.appendingPathComponent(projectDir).appendingPathComponent("\(id).jsonl")
+        let chat = ChatSession(id: id, fileURL: file, projectDir: projectDir, cwd: folder,
+                               firstPrompt: message, promptCount: 1, startedAt: Date(), modifiedAt: Date(), sizeBytes: 0)
+        let live = liveChat(for: chat)
+        live.isNew = true
+        live.account = account
+        live.model = model
+        live.mode = mode
+        chats.insert(chat, at: 0)
+        live.send(message)
+        if let account, !account.isDefault {
+            try? appendHistory(id, cwd: folder, title: String(message.prefix(80)), account: account)
+        }
+        return chat
+    }
+
+    /// Folders chats were last started from, most recent first, that still exist.
+    var recentFolders: [(path: String, count: Int, last: Date)] {
+        var byFolder: [String: (count: Int, last: Date)] = [:]
+        for chat in chats {
+            let path = chat.workingDirectory
+            let entry = byFolder[path] ?? (0, .distantPast)
+            byFolder[path] = (entry.count + 1, max(entry.last, chat.modifiedAt))
+        }
+        let home = ClaudePaths.home.path
+        return byFolder
+            .filter { $0.key != home && $0.key != config.projectsRoot && FileManager.default.fileExists(atPath: $0.key) && !$0.key.hasPrefix("/private/tmp") }
+            .map { ($0.key, $0.value.count, $0.value.last) }
+            .sorted { $0.last > $1.last }
     }
 
     func closeLiveChat(_ id: String) {

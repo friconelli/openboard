@@ -310,14 +310,12 @@ struct ChatsView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem {
-            Menu {
-                ForEach(store.accounts) { account in
-                    Button(account.name) { newChat(with: account) }
-                }
+            Button {
+                NotificationCenter.default.post(name: .newChat, object: nil)
             } label: {
                 Label("Nuova chat", systemImage: "plus.bubble")
             }
-            .help("Nuova chat in \(Launcher.terminalName)")
+            .help("Nuova chat (⌘N): cartella, account, modello e primo messaggio")
         }
         ToolbarItem {
             Button {

@@ -4,6 +4,7 @@ extension Notification.Name {
     static let showPalette = Notification.Name("showPalette")
     static let showSection = Notification.Name("showSection")
     static let resetSmartFilters = Notification.Name("resetSmartFilters")
+    static let newChat = Notification.Name("newChat")
 }
 
 /// Menu bar commands: the palette, jumps to sections and the look of the app.
@@ -17,6 +18,10 @@ struct DeckCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Nuova chat…") { NotificationCenter.default.post(name: .newChat, object: nil) }
+                .keyboardShortcut("n")
+        }
         CommandMenu("Vai") {
             Button("Cerca chat e comandi…") { NotificationCenter.default.post(name: .showPalette, object: nil) }
                 .keyboardShortcut("k")

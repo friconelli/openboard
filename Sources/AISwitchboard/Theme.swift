@@ -500,3 +500,31 @@ enum RowDensity: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { self == .comfortable ? "Dettagliate" : "Compatte" }
 }
+
+/// A TextEditor with a placeholder that sits exactly where the caret and the first character go.
+/// NSTextView (behind TextEditor) draws text 5 pt in from the left (line fragment padding) and
+/// flush with the top; the placeholder gets the same offsets plus the editor's own padding.
+struct PlaceholderTextEditor: View {
+    let placeholder: String
+    @Binding var text: String
+    var padding: CGFloat = 8
+
+    private static let lineFragmentPadding: CGFloat = 5
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, padding + Self.lineFragmentPadding)
+                    .padding(.trailing, padding)
+                    .padding(.top, padding)
+                    .allowsHitTesting(false)
+            }
+            TextEditor(text: $text)
+                .scrollContentBackground(.hidden)
+                .padding(padding)
+        }
+        .font(.body)
+    }
+}

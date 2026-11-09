@@ -98,19 +98,11 @@ struct ComposeView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Cosa vuoi fare?")
                     .font(.headline)
-                ZStack(alignment: .topLeading) {
-                    if request.isEmpty {
-                        Text("Es. “Sul sito del cliente aggiungi il calcolo delle spedizioni a peso, come avevamo deciso la settimana scorsa”")
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                    }
-                    TextEditor(text: $request)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(4)
-                        .frame(minHeight: 110)
-                }
+                PlaceholderTextEditor(
+                    placeholder: "Es. “Sul sito del cliente aggiungi il calcolo delle spedizioni a peso, come avevamo deciso la settimana scorsa”",
+                    text: $request
+                )
+                .frame(minHeight: 110)
                 .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
 
                 HStack {
