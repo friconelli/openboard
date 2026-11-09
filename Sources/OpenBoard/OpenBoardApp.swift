@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AISwitchboardApp: App {
+struct OpenBoardApp: App {
     var body: some Scene {
         WindowGroup("OpenBoard") {
             ContentView()

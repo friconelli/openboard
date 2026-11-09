@@ -89,7 +89,7 @@ struct AccountsView: View {
                         .font(.headline)
                     Text(store.directLaunchEnabled
                          ? "Attiva: “Riprendi” e “Nuova chat” aprono una scheda e avviano Claude subito."
-                         : "Quando apri una chat, la nuova scheda avvia Claude da sola. Aggiunge a ~/.zshrc un piccolo blocco (delimitato da “AI Switchboard”) che al primo prompt esegue il comando preparato dall'app per quella cartella; prima salva una copia in ~/.ai-switchboard/zshrc.backup. Non serve il permesso di Accessibilità.")
+                         : "Quando apri una chat, la nuova scheda avvia Claude da sola. Aggiunge a ~/.zshrc un piccolo blocco (delimitato da “OpenBoard”) che al primo prompt esegue il comando preparato dall'app per quella cartella; prima salva una copia in ~/.openboard/zshrc.backup. Non serve il permesso di Accessibilità.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -228,7 +228,7 @@ struct AccountsView: View {
 }
 
 extension Notification.Name {
-    static let showOnboarding = Notification.Name("AISwitchboard.showOnboarding")
+    static let showOnboarding = Notification.Name("OpenBoard.showOnboarding")
 }
 
 struct UpdatesCard: View {

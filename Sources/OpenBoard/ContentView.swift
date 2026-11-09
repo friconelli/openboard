@@ -187,7 +187,7 @@ struct ContentView: View {
             }
             Button("Annulla", role: .cancel) {}
         } message: { launch in
-            Text("Per avviare Claude nella nuova scheda l'app aggiunge a ~/.zshrc un piccolo blocco “AI Switchboard” che esegue il comando preparato per quella cartella (copia di sicurezza in ~/.ai-switchboard/zshrc.backup). Si disattiva da Account.\n\n\(launch.command)")
+            Text("Per avviare Claude nella nuova scheda l'app aggiunge a ~/.zshrc un piccolo blocco “OpenBoard” che esegue il comando preparato per quella cartella (copia di sicurezza in ~/.openboard/zshrc.backup). Si disattiva da Account.\n\n\(launch.command)")
         }
         .alert(
             "Operazione non riuscita",

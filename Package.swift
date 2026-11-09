@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "AISwitchboard",
+    name: "OpenBoard",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "AISwitchboard",
-            path: "Sources/AISwitchboard"
+            name: "OpenBoard",
+            path: "Sources/OpenBoard"
         ),
         .testTarget(
-            name: "AISwitchboardTests",
-            dependencies: ["AISwitchboard"],
-            path: "Tests/AISwitchboardTests"
+            name: "OpenBoardTests",
+            dependencies: ["OpenBoard"],
+            path: "Tests/OpenBoardTests"
         ),
     ]
 )

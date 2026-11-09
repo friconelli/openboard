@@ -1,5 +1,5 @@
 import XCTest
-@testable import AISwitchboard
+@testable import OpenBoard
 
 /// When Claude makes several tool calls in one answer, Claude Code writes every call as its own
 /// line and the result of each call but the last as a sibling branch, off the main chain.

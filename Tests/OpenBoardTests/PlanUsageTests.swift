@@ -1,5 +1,5 @@
 import XCTest
-@testable import AISwitchboard
+@testable import OpenBoard
 
 final class PlanUsageTests: XCTestCase {
     func testParsesSessionAndWeekWithResets() throws {

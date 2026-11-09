@@ -1,5 +1,5 @@
 import XCTest
-@testable import AISwitchboard
+@testable import OpenBoard
 
 /// Runs merge and split on copies of real transcripts listed in AISW_REAL_CHATS (colon-separated
 /// paths). Skipped when the variable is not set. The originals are only read.

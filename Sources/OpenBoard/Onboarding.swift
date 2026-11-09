@@ -562,7 +562,7 @@ struct OnboardingView: View {
 
     private func saveConfig() {
         store.config.chatRoot = chatRoot
-        store.config.projectsRoot = useProjects ? projectsRoot : ClaudePaths.home.appendingPathComponent(".ai-switchboard-no-projects").path
+        store.config.projectsRoot = useProjects ? projectsRoot : ClaudePaths.home.appendingPathComponent(".openboard-no-projects").path
         store.config.contexts = contexts
         store.config.defaultProjectContext = defaultProjectContext.isEmpty ? nil : defaultProjectContext
         store.config.save()

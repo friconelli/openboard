@@ -1,15 +1,13 @@
 import AppKit
 
-/// Updates from GitHub Releases: the latest release's `AISwitchboard.zip` replaces the running
+/// Updates from GitHub Releases: the latest release's `OpenBoard.zip` replaces the running
 /// app, which then relaunches. The download is checked (same bundle id, expected version)
 /// before anything is replaced; the previous version goes to the Trash.
 @MainActor
 final class Updater: ObservableObject {
     static let shared = Updater()
-    static let repository = "friconelli/ai-switchboard"
+    static let repository = "friconelli/openboard"
     static let assetName = "OpenBoard.zip"
-    /// Name used up to 1.1.0; releases carry both so older installs keep updating.
-    static let legacyAssetName = "AISwitchboard.zip"
 
     struct Release: Equatable {
         let version: String
@@ -73,7 +71,7 @@ final class Updater: ObservableObject {
                 let assets: [Asset]
             }
             let payload = try JSONDecoder().decode(Payload.self, from: data)
-            guard let asset = (payload.assets.first(where: { $0.name == Self.assetName }) ?? payload.assets.first(where: { $0.name == Self.legacyAssetName })) else {
+            guard let asset = payload.assets.first(where: { $0.name == Self.assetName }) else {
                 throw ChatOperationError.io("La release \(payload.tag_name) non contiene \(Self.assetName)")
             }
             latest = Release(

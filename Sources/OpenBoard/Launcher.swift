@@ -86,22 +86,22 @@ enum Launcher {
 }
 
 /// A small zsh hook in `~/.zshrc`: at the first prompt of a new shell it runs the command
-/// AI Switchboard queued for that folder (if fresher than 30 seconds), so Warp opens the
+/// OpenBoard queued for that folder (if fresher than 30 seconds), so Warp opens the
 /// chat directly without simulated keystrokes or the Accessibility permission.
 enum ShellHook {
-    static let startMarker = "# >>> AI Switchboard >>>"
-    static let endMarker = "# <<< AI Switchboard <<<"
+    static let startMarker = "# >>> OpenBoard >>>"
+    static let endMarker = "# <<< OpenBoard <<<"
 
     private static var zshrc: URL { ClaudePaths.home.appendingPathComponent(".zshrc") }
-    private static var queueDir: URL { ClaudePaths.home.appendingPathComponent(".ai-switchboard/launch") }
-    private static var backup: URL { ClaudePaths.home.appendingPathComponent(".ai-switchboard/zshrc.backup") }
+    private static var queueDir: URL { ClaudePaths.home.appendingPathComponent(".openboard/launch") }
+    private static var backup: URL { ClaudePaths.home.appendingPathComponent(".openboard/zshrc.backup") }
 
     static let block = """
     \(startMarker)
-    # Runs a command queued by AI Switchboard when a new tab opens in its folder (once per shell).
-    _ai_switchboard_launch() {
-      precmd_functions=(${precmd_functions:#_ai_switchboard_launch})
-      local dir="$HOME/.ai-switchboard/launch" f claimed now=$(date +%s)
+    # Runs a command queued by OpenBoard when a new tab opens in its folder (once per shell).
+    _openboard_launch() {
+      precmd_functions=(${precmd_functions:#_openboard_launch})
+      local dir="$HOME/.openboard/launch" f claimed now=$(date +%s)
       [[ -d $dir ]] || return 0
       for f in "$dir"/*.zsh(N.Om); do
         if (( now - $(stat -f %m "$f") > 30 )); then rm -f "$f"; continue; fi
@@ -113,7 +113,7 @@ enum ShellHook {
         return 0
       done
     }
-    precmd_functions+=(_ai_switchboard_launch)
+    precmd_functions+=(_openboard_launch)
     \(endMarker)
     """
 
@@ -123,7 +123,8 @@ enum ShellHook {
 
     static func install() throws {
         guard !isInstalled else { return }
-        let current = (try? String(contentsOf: zshrc, encoding: .utf8)) ?? ""
+        var current = (try? String(contentsOf: zshrc, encoding: .utf8)) ?? ""
+        current = withoutEarlierBlocks(current)
         try FileManager.default.createDirectory(at: queueDir, withIntermediateDirectories: true)
         try current.write(to: backup, atomically: true, encoding: .utf8)
         let separator = current.isEmpty || current.hasSuffix("\n") ? "\n" : "\n\n"
@@ -140,6 +141,18 @@ enum ShellHook {
         updated.removeSubrange(start.lowerBound..<lineEnd)
         while updated.hasSuffix("\n\n") { updated.removeLast() }
         try updated.write(to: zshrc, atomically: true, encoding: .utf8)
+    }
+
+    /// Removes a launch block written by an earlier version of the app under another name. It is
+    /// recognised by its shape, not by the name: `# >>> X >>>` … `# <<< X <<<` around a precmd hook
+    /// that reads queued launch scripts.
+    static func withoutEarlierBlocks(_ text: String) -> String {
+        let pattern = #"\n*# >>> ([^\n]+) >>>\n(?:(?!# <<<)[\s\S])*?precmd_functions(?:(?!# <<<)[\s\S])*?/launch"(?:(?!# <<<)[\s\S])*?# <<< \1 <<<\n?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        var result = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "\n")
+        while result.hasSuffix("\n\n") { result.removeLast() }
+        return result
     }
 
     /// Writes `<queue>/<uuid>.zsh` with the folder on the first line and the command after it.

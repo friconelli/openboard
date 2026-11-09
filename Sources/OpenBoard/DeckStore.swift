@@ -22,7 +22,7 @@ final class DeckStore: ObservableObject {
     private var planUsageTimer: Timer?
     private var planUsageLoading = false
     @Published var memoryFiles: [MemoryFile] = []
-    @Published var config = SwitchboardConfig.load()
+    @Published var config = BoardConfig.load()
     @Published var areas: [WorkFolder] = []
     @Published var projects: [WorkFolder] = []
 

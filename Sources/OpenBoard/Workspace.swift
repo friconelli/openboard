@@ -1,7 +1,7 @@
 import Foundation
 
 /// User settings: where AI chats live and how chats are split into contexts.
-struct SwitchboardConfig: Codable {
+struct BoardConfig: Codable {
     var chatRoot: String = ClaudePaths.home.appendingPathComponent("Chat AI").path
     var projectsRoot: String = ClaudePaths.home.appendingPathComponent("projects").path
     /// Chosen by the user in the first-run setup; nothing is preset.
@@ -26,10 +26,10 @@ struct SwitchboardConfig: Codable {
 
     private static var url: URL { ClaudePaths.appSupport.appendingPathComponent("config.json") }
 
-    static func load() -> SwitchboardConfig {
+    static func load() -> BoardConfig {
         guard let data = try? Data(contentsOf: url),
-              var config = try? JSONDecoder().decode(SwitchboardConfig.self, from: data) else {
-            var fresh = SwitchboardConfig()
+              var config = try? JSONDecoder().decode(BoardConfig.self, from: data) else {
+            var fresh = BoardConfig()
             fresh.onboardingDone = false
             return fresh
         }
@@ -105,19 +105,19 @@ enum Workspaces {
         })
     }
 
-    static func ensureRoots(_ config: SwitchboardConfig) {
+    static func ensureRoots(_ config: BoardConfig) {
         for context in config.contexts {
             try? FileManager.default.createDirectory(atPath: config.contextRoot(context), withIntermediateDirectories: true)
         }
     }
 
-    static func areas(_ config: SwitchboardConfig) -> [WorkFolder] {
+    static func areas(_ config: BoardConfig) -> [WorkFolder] {
         config.contexts.flatMap { context -> [WorkFolder] in
             subfolders(of: config.contextRoot(context)).map { WorkFolder(path: $0, kind: .area, context: context) }
         }
     }
 
-    static func projects(_ config: SwitchboardConfig) -> [WorkFolder] {
+    static func projects(_ config: BoardConfig) -> [WorkFolder] {
         subfolders(of: config.projectsRoot).map {
             WorkFolder(path: $0, kind: .project, context: config.context(forFolder: $0))
         }
@@ -134,7 +134,7 @@ enum Workspaces {
     }
 
     /// Creates `<chat root>/<context>/<name>` with a starter CLAUDE.md and resource folders.
-    static func createArea(named name: String, context: String, config: SwitchboardConfig) throws -> String {
+    static func createArea(named name: String, context: String, config: BoardConfig) throws -> String {
         let fm = FileManager.default
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")

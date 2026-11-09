@@ -6,7 +6,7 @@ App macOS (SwiftUI) per gestire le chat di Claude Code, anche con più account: 
 
 ## Installazione
 
-1. Scarica `OpenBoard.zip` dall'[ultima release](https://github.com/friconelli/ai-switchboard/releases/latest), aprilo e trascina **OpenBoard.app** in Applicazioni.
+1. Scarica `OpenBoard.zip` dall'[ultima release](https://github.com/friconelli/openboard/releases/latest), aprilo e trascina **OpenBoard.app** in Applicazioni.
 2. L'app non è firmata con un certificato Apple, quindi al primo avvio macOS la blocca: apri **Impostazioni di Sistema → Privacy e sicurezza** e, in fondo, premi **Apri comunque** accanto a OpenBoard (in alternativa, da Terminale: `xattr -dr com.apple.quarantine /Applications/OpenBoard.app`). Serve solo la prima volta: gli aggiornamenti scaricati dall'app non lo richiedono.
 3. Al primo avvio la **configurazione guidata** (si può saltare in qualsiasi momento con *Salta per ora*) chiede gli account Claude (quelli già presenti o nuovi, con login), le cartelle delle chat e dei progetti, i contesti e le prime aree di lavoro. Si riapre da Account → *Configurazione guidata…*.
 
@@ -47,7 +47,7 @@ Per pubblicare una versione: `Scripts/release.sh 1.2.0 "Note di rilascio"` (impo
 - **Sposta in…**: sposta una o più chat in un'area o in un progetto. Riscrive come testo il `cwd` originale e i percorsi della cartella di supporto, verifica il risultato, sposta tutto in `~/.claude/projects/<cartella codificata>/` e manda l'originale nel Cestino (il nome codificato è il percorso con ogni carattere non alfanumerico sostituito da `-`).
 - **Memoria**: i file di memoria si spostano tra progetti/aree aggiornando entrambi i `MEMORY.md`.
 
-Configurazione in `~/Library/Application Support/AISwitchboard/config.json`.
+Configurazione in `~/Library/Application Support/OpenBoard/config.json`.
 
 ## Come trova gli account
 
@@ -55,7 +55,7 @@ Configurazione in `~/Library/Application Support/AISwitchboard/config.json`.
 
 ## Warp
 
-Con **Apertura diretta** attiva (pagina Account) l'app aggiunge a `~/.zshrc` un blocco delimitato da `# >>> OpenBoard >>>` (salvando prima una copia in `~/.ai-switchboard/zshrc.backup`). “Riprendi” e “Nuova chat” scrivono il comando in `~/.ai-switchboard/launch/<id>.zsh` con la cartella sulla prima riga e aprono una scheda Warp lì: al primo prompt il blocco esegue il comando di quella cartella (solo se più recente di 30 secondi, una volta per scheda). Disattivandola il blocco viene rimosso.
+Con **Apertura diretta** attiva (pagina Account) l'app aggiunge a `~/.zshrc` un blocco delimitato da `# >>> OpenBoard >>>` (salvando prima una copia in `~/.openboard/zshrc.backup`). “Riprendi” e “Nuova chat” scrivono il comando in `~/.openboard/launch/<id>.zsh` con la cartella sulla prima riga e aprono una scheda Warp lì: al primo prompt il blocco esegue il comando di quella cartella (solo se più recente di 30 secondi, una volta per scheda). Disattivandola il blocco viene rimosso.
 
 Se l'apertura diretta non è attiva, al primo “Riprendi” l'app chiede di attivarla (“Attiva e apri”) oppure apre la scheda lasciando il comando negli appunti. Il vecchio metodo con ⌘V simulato è stato tolto: con la firma ad-hoc il permesso Accessibilità si perde a ogni build. Senza Warp usa Terminale.
 
