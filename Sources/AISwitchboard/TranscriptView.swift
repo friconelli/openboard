@@ -12,6 +12,8 @@ struct TranscriptView: View {
     @State private var isLoading = true
 
     @State private var live: LiveChat?
+    @State private var showFiles = false
+    @State private var showGit = false
 
     /// Chatting here while the same chat is open in a terminal would write it twice.
     private var blockedReason: String? {
@@ -62,7 +64,10 @@ struct TranscriptView: View {
             }
         }
         .background(Theme.pageBackground ?? Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $showFiles) { ChangedFilesSheet(chat: chat) }
+        .sheet(isPresented: $showGit) { GitSheet(store: store, folder: chat.workingDirectory) }
         .onAppear {
+            Notifier.shared.visibleChatID = chat.id
             live = store.liveChat(for: chat)
             // Tests and screenshots: `-debugChat <id> -debugSend "…" [-debugModel haiku] [-debugMode manual]`.
             let defaults = UserDefaults.standard
@@ -137,6 +142,10 @@ struct TranscriptView: View {
                 ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move([chat]) }
                     .help("Sposta in un'area di lavoro o in un progetto")
                 ToolButton(title: "Rinomina", symbol: "pencil") { actions.rename(chat) }
+                ToolButton(title: "File", symbol: "doc.on.doc") { showFiles = true }
+                    .help("File modificati in questa chat, con le differenze")
+                ToolButton(title: "Git", symbol: "arrow.triangle.branch") { showGit = true }
+                    .help("Stato, differenze, commit e push della cartella della chat")
                 Menu {
                     Menu("Contesto") {
                         ForEach(store.config.contexts, id: \.self) { context in
@@ -145,6 +154,7 @@ struct TranscriptView: View {
                         Divider()
                         Button("Automatico (dalla cartella)") { store.setContext(nil, for: [chat]) }
                     }
+                    Button("Esporta in Markdown…") { MarkdownExport.save(chat) }
                     Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
                     Button("Copia ID sessione") {
                         NSPasteboard.general.clearContents()

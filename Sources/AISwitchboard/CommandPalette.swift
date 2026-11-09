@@ -12,6 +12,7 @@ struct DeckCommands: Commands {
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
     @AppStorage(RowDensity.key) private var density: RowDensity = .comfortable
     @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
+    @AppStorage(Notifier.enabledKey) private var notifications = true
 
     private func go(_ name: String) {
         NotificationCenter.default.post(name: .showSection, object: name)
@@ -45,6 +46,7 @@ struct DeckCommands: Commands {
             Picker("Righe delle chat", selection: $density) {
                 ForEach(RowDensity.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Notifiche (Claude ha finito, chiede un permesso)", isOn: $notifications)
             Button("Mostra i filtri nascosti") { NotificationCenter.default.post(name: .resetSmartFilters, object: nil) }
             Divider()
         }

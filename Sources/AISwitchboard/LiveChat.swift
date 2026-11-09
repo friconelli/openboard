@@ -94,6 +94,7 @@ final class LiveChat: ObservableObject {
     /// Called when a turn ends, so the transcript and the indexes can be refreshed.
     var onTurnFinished: (() -> Void)?
     var onRateLimit: (([String: Any]) -> Void)?
+    var onPermission: ((Permission) -> Void)?
 
     private var process: Process?
     private var input: FileHandle?
@@ -294,6 +295,7 @@ final class LiveChat: ObservableObject {
                 input: input,
                 canAllowEdits: suggestions.contains { $0["mode"] as? String == "acceptEdits" }
             )
+            if let permission = pendingPermission { onPermission?(permission) }
             // Tests: `-debugAutoAllow YES` answers through the same path as the “Consenti” button.
             if UserDefaults.standard.bool(forKey: "debugAutoAllow"), let permission = pendingPermission {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.answer(permission, allow: true) }

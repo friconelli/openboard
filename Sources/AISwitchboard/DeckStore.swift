@@ -72,7 +72,16 @@ final class DeckStore: ObservableObject {
 
     func refreshActiveSessions() {
         let sessions = AccountScanner.activeSessions(accounts)
-        if sessions != activeSessions { activeSessions = sessions }
+        guard sessions != activeSessions else { return }
+        // A terminal session that stops working is waiting for you.
+        let own = Set(liveChats.values.compactMap(\.pid))
+        let wasBusy = Set(activeSessions.filter { $0.status == "busy" }.map(\.pid))
+        for session in sessions where wasBusy.contains(session.pid) && session.status != "busy" && !own.contains(session.pid) {
+            let title = chat(id: session.sessionId)?.displayTitle ?? session.name ?? "Sessione"
+            Notifier.shared.post(chatID: session.sessionId, title: "\(title) ti aspetta",
+                                 body: "Claude ha finito nel terminale (\(session.accountName))")
+        }
+        activeSessions = sessions
     }
 
     func reloadChats() {
@@ -699,9 +708,21 @@ final class DeckStore: ObservableObject {
         if let existing = liveChats[chat.id] { return existing }
         let live = LiveChat(chatID: chat.id, directory: chat.workingDirectory, fileURL: chat.fileURL)
         live.account = accounts(for: chat).last ?? preferredAccount
-        live.onTurnFinished = { [weak self] in
+        let title = chat.displayTitle
+        live.onTurnFinished = { [weak self, weak live] in
             self?.reloadChats()
             self?.refreshPlanUsage()
+            let last = live?.items.reversed().compactMap { item -> String? in
+                if case .text(_, let text) = item { return text }
+                if case .notice(_, let text, _) = item { return text }
+                return nil
+            }.first
+            Notifier.shared.post(chatID: chat.id, title: "\(title): Claude ha finito",
+                                 body: String((last ?? "Risposta pronta").replacingOccurrences(of: "\n", with: " ").prefix(180)))
+        }
+        live.onPermission = { permission in
+            Notifier.shared.post(chatID: chat.id, title: "\(title): Claude chiede il permesso",
+                                 body: "\(permission.tool) \(permission.summary)")
         }
         live.onRateLimit = { [weak self, weak live] info in
             guard let self, let id = live?.account?.id else { return }

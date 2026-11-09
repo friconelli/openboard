@@ -151,6 +151,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in showOnboarding = true }
         .onAppear {
             LiveChat.closeLeftovers()
+            Notifier.shared.start()
+            Notifier.shared.onOpenChat = { id in
+                section = .chats(.all)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedChatID = id }
+            }
             store.start()
             store.startPlanUsageMonitor()
             showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
