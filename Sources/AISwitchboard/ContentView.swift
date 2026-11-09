@@ -124,6 +124,9 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            store.closeAllLiveChats()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showSection)) { note in
             if let name = note.object as? String, let target = DeckSection(debugName: name) { section = target }
         }
@@ -136,6 +139,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showOnboarding)) { _ in showOnboarding = true }
         .onAppear {
+            LiveChat.closeLeftovers()
             store.start()
             showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
             updater.checkIfDue()

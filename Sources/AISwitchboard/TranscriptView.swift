@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AppKit
 
 struct TranscriptView: View {
@@ -10,15 +11,21 @@ struct TranscriptView: View {
     @State private var truncated = false
     @State private var isLoading = true
 
+    @State private var live: LiveChat?
+
+    /// Chatting here while the same chat is open in a terminal would write it twice.
+    private var blockedReason: String? {
+        let others = store.activeSessions.filter { $0.sessionId == chat.id && $0.pid != live?.pid }
+        return others.isEmpty ? nil : "Questa chat è aperta in un terminale: chiudila lì per scrivere da qui."
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if isLoading {
+            if isLoading && messages.isEmpty {
                 ProgressView("Caricamento conversazione…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if messages.isEmpty {
-                EmptyStateView(symbol: "text.bubble", title: "Conversazione vuota")
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -29,27 +36,55 @@ struct TranscriptView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity)
                             }
+                            if messages.isEmpty && (live?.items.isEmpty ?? true) {
+                                EmptyStateView(symbol: "text.bubble", title: "Conversazione vuota")
+                            }
                             ForEach(messages) { message in
                                 MessageView(message: message)
                                     .id(message.id)
                             }
+                            if let live {
+                                LiveItemsView(live: live)
+                            }
+                            Color.clear.frame(height: 1).id("bottom")
                         }
                         .padding(20)
                     }
-                    .onAppear {
-                        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+                    .onChange(of: messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                    .onReceive(live?.objectWillChange.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+                        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
             }
+            if let live {
+                ChatComposer(store: store, live: live, blockedReason: blockedReason)
+            }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .task(id: "\(chat.id)|\(chat.sizeBytes)|\(chat.modifiedAt.timeIntervalSince1970)") {
+        .background(Theme.pageBackground ?? Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            live = store.liveChat(for: chat)
+            // Tests and screenshots: `-debugChat <id> -debugSend "…" [-debugModel haiku] [-debugMode manual]`.
+            let defaults = UserDefaults.standard
+            if defaults.string(forKey: "debugChat") == chat.id, let message = defaults.string(forKey: "debugSend"), let live,
+               live.items.isEmpty {
+                live.model = defaults.string(forKey: "debugModel")
+                if let mode = defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) { live.mode = mode }
+                live.send(message)
+            }
+        }
+        .task(id: "\(chat.id)|\(chat.sizeBytes)|\(chat.modifiedAt.timeIntervalSince1970)|\(live?.isRunning == true)") {
+            // While Claude answers, the turn is shown live: the history stops where it started.
+            let running = live?.isRunning == true
+            let cutoff = running ? live?.historyCutoff : nil
+            if running && !messages.isEmpty { return }
             isLoading = true
             let url = chat.fileURL
-            let result = await Task.detached(priority: .userInitiated) { TranscriptReader.read(url) }.value
+            let result = await Task.detached(priority: .userInitiated) { TranscriptReader.read(url, upTo: cutoff) }.value
             messages = result.messages
             truncated = result.truncated
             isLoading = false
+            if !running { live?.clearFinishedTurns() }
         }
     }
 
@@ -70,6 +105,8 @@ struct TranscriptView: View {
                         Label(chat.workingDirectory.replacingOccurrences(of: ClaudePaths.home.path, with: "~"), systemImage: "folder")
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .frame(maxWidth: 380, alignment: .leading)
+                            .help(chat.workingDirectory)
                         ContextBadge(context: store.context(for: chat)).fixedSize()
                         ForEach(store.accounts(for: chat)) { account in
                             AccountBadge(account: account, compact: true).fixedSize()

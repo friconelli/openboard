@@ -335,9 +335,10 @@ extension View {
     @ViewBuilder
     func secondaryButton() -> some View {
         if #available(macOS 26.0, *) {
-            self.buttonStyle(.glass)
+            // Neutral glass: the window tint is for prominent actions only.
+            self.buttonStyle(.glass).tint(nil)
         } else {
-            self.buttonStyle(.bordered)
+            self.buttonStyle(.bordered).tint(nil)
         }
     }
 }
@@ -372,7 +373,12 @@ struct FlowLayout: Layout {
         var rows: [[(index: Int, size: CGSize)]] = [[]]
         var used: CGFloat = 0
         for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+            var size = subviews[index].sizeThatFits(.unspecified)
+            // An item wider than the row (a long path) is given the row and truncates itself.
+            if width.isFinite, size.width > width {
+                size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
+                size.width = min(size.width, width)
+            }
             if used > 0, used + spacing + size.width > width {
                 rows.append([])
                 used = 0

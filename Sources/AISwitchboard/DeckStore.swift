@@ -15,6 +15,10 @@ final class DeckStore: ObservableObject {
     @Published var activeSessions: [ActiveSession] = []
     /// The last operation that can still be taken back, shown as a toast with “Annulla”.
     @Published var pendingUndo: UndoAction?
+    /// Chats being talked to from inside the app, kept alive while you look at other chats.
+    @Published private(set) var liveChats: [String: LiveChat] = [:]
+    /// Latest 5-hour / 7-day usage Claude Code reported, per account id.
+    @Published var quotas: [String: Quota] = [:]
     @Published var memoryFiles: [MemoryFile] = []
     @Published var config = SwitchboardConfig.load()
     @Published var areas: [WorkFolder] = []
@@ -664,6 +668,44 @@ final class DeckStore: ObservableObject {
     }
 
     /// `nil` resets the chat to its folder's context.
+    // MARK: - Chat inside the app
+
+    struct Quota {
+        var fiveHour: Double?
+        var sevenDay: Double?
+        var fiveHourResets: Date?
+        var updated = Date()
+    }
+
+    func liveChat(for chat: ChatSession) -> LiveChat {
+        if let existing = liveChats[chat.id] { return existing }
+        let live = LiveChat(chatID: chat.id, directory: chat.workingDirectory, fileURL: chat.fileURL)
+        live.account = accounts(for: chat).last ?? preferredAccount
+        live.onTurnFinished = { [weak self] in self?.reloadChats() }
+        live.onRateLimit = { [weak self, weak live] info in
+            guard let self, let id = live?.account?.id else { return }
+            let windows = info["unifiedWindows"] as? [String: Any] ?? [:]
+            func utilization(_ key: String) -> Double? {
+                ((windows[key] as? [String: Any])?["utilization"] as? NSNumber)?.doubleValue
+            }
+            let resets = ((windows["five_hour"] as? [String: Any])?["resetsAt"] as? NSNumber)
+                .map { Date(timeIntervalSince1970: $0.doubleValue) }
+            self.quotas[id] = Quota(fiveHour: utilization("five_hour"), sevenDay: utilization("seven_day"), fiveHourResets: resets)
+        }
+        liveChats[chat.id] = live
+        return live
+    }
+
+    func closeLiveChat(_ id: String) {
+        liveChats[id]?.terminate()
+        liveChats[id] = nil
+    }
+
+    func closeAllLiveChats() {
+        for chat in liveChats.values { chat.terminate() }
+        liveChats.removeAll()
+    }
+
     // MARK: - Smart sections
 
     func matches(_ chat: ChatSession, _ filter: SmartFilter) -> Bool {

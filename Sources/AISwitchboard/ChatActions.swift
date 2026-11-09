@@ -78,7 +78,7 @@ struct ChatHealthView: View {
             let context = store.contextTokens(for: chat)
             let recommendation = ModelAdvisor.recommend(usage, prompts: chat.promptCount)
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 6) {
+                FlowLayout(spacing: 6, lineSpacing: 6) {
                     chip("\(context / 1000)k token", symbol: "scalemass",
                          tint: context >= 100_000 ? .orange : .secondary,
                          help: "Contesto che Claude rilegge a ogni nuovo messaggio")
@@ -93,8 +93,8 @@ struct ChatHealthView: View {
                         chip("\(usage.compactions) compatt.", symbol: "rectangle.compress.vertical", tint: usage.compactions >= 2 ? .orange : .secondary,
                              help: "Volte in cui Claude Code ha riassunto la conversazione per farla stare nel contesto")
                     }
-                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
 
                 if !insights.isEmpty {
