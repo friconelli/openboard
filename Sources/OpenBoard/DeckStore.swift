@@ -743,6 +743,23 @@ final class DeckStore: ObservableObject {
         }
     }
 
+    static let autoSwitchKey = "autoSwitchAccounts"
+
+    /// When `current` is at its 5-hour or weekly limit (95%+) and auto-switching is on, the
+    /// account with the most room left; nil to stay.
+    func accountWithRoom(instead current: ClaudeAccount?) -> ClaudeAccount? {
+        guard UserDefaults.standard.object(forKey: Self.autoSwitchKey) as? Bool ?? true, let current else { return nil }
+        func load(_ account: ClaudeAccount) -> Int {
+            let usage = planUsage[account.id]
+            return max(usage?.session?.percent ?? 0, usage?.week?.percent ?? 0)
+        }
+        guard let used = planUsage[current.id], max(used.session?.percent ?? 0, used.week?.percent ?? 0) >= 95 else { return nil }
+        // Named accounts only: the default config is usually the same login as one of them.
+        let candidates = accounts.filter { !$0.isDefault && $0.id != current.id && planUsage[$0.id] != nil }
+        guard let best = candidates.min(by: { load($0) < load($1) }), load(best) < 90 else { return nil }
+        return best
+    }
+
     static let codexUsageKey = "codex"
 
     func startPlanUsageMonitor() {
@@ -784,6 +801,7 @@ final class DeckStore: ObservableObject {
             Notifier.shared.post(chatID: live?.chatID ?? chat.id, title: "\(title): \(live?.provider.title ?? "Claude") ha finito",
                                  body: String((last ?? "Risposta pronta").replacingOccurrences(of: "\n", with: " ").prefix(180)))
         }
+        live.betterAccount = { [weak self] current in self?.accountWithRoom(instead: current) }
         live.onPermission = { permission in
             Notifier.shared.post(chatID: chat.id, title: "\(title): Claude chiede il permesso",
                                  body: "\(permission.tool) \(permission.summary)")

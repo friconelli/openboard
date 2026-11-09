@@ -101,6 +101,23 @@ enum PlanUsage {
         return nil
     }
 
+    enum Pace { case fine, fast, tooFast }
+
+    /// Where usage is heading at the current rate: fine, a bit fast (close to the limit at the
+    /// reset) or too fast (the limit comes before the reset, at `exhausted`).
+    static func pace(_ window: Window, hours: Double, now: Date = Date()) -> (pace: Pace, exhausted: Date?)? {
+        guard let resets = window.resets, window.percent > 0 else { return nil }
+        let total = hours * 3600
+        let remaining = max(0, resets.timeIntervalSince(now))
+        let elapsed = total - remaining
+        guard elapsed > total * 0.05, window.percent < 100 else { return nil }
+        let rate = Double(window.percent) / elapsed            // % per second
+        let atReset = Double(window.percent) + rate * remaining
+        if atReset <= 85 { return (.fine, nil) }
+        if atReset <= 100 { return (.fast, nil) }
+        return (.tooFast, now.addingTimeInterval((100 - Double(window.percent)) / rate))
+    }
+
     /// “tra 1 h 12 min”, “tra 3 gg”.
     static func countdown(to date: Date, now: Date = Date()) -> String {
         let seconds = max(0, Int(date.timeIntervalSince(now)))
@@ -150,8 +167,19 @@ struct PlanUsagePanel: View {
             Text(name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(tint)
-            if let session = usage.session { bar("5h", session, now: now) }
-            if let week = usage.week { bar("Sett.", week, now: now) }
+            if let session = usage.session { bar("5h", session, now: now); paceLine(session, hours: 5, now: now) }
+            if let week = usage.week { bar("Sett.", week, now: now); paceLine(week, hours: 168, now: now) }
+        }
+    }
+
+    @ViewBuilder
+    private func paceLine(_ window: PlanUsage.Window, hours: Double, now: Date) -> some View {
+        if let pace = PlanUsage.pace(window, hours: hours, now: now), pace.pace != .fine {
+            Text(pace.exhausted.map { "ritmo troppo alto: finisce \(PlanUsage.countdown(to: $0, now: now))" } ?? "ritmo un po' alto")
+                .font(.caption2)
+                .foregroundStyle(pace.pace == .tooFast ? Theme.danger : Theme.warning)
+                .padding(.leading, 36)
+                .help("Al ritmo di consumo di adesso, prima che il limite si azzeri")
         }
     }
 

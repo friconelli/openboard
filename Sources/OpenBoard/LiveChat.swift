@@ -100,6 +100,9 @@ final class LiveChat: ObservableObject {
     var onTurnFinished: (() -> Void)?
     var onRateLimit: (([String: Any]) -> Void)?
     var onPermission: ((Permission) -> Void)?
+    /// Claude: an account with room left when the current one is at its limit, or nil.
+    var betterAccount: ((ClaudeAccount?) -> ClaudeAccount?)?
+    private var switchedForLimit = false
 
     private var process: Process?
     private var input: FileHandle?
@@ -138,6 +141,10 @@ final class LiveChat: ObservableObject {
         }
         lastSent = Queued(text: trimmed, attachments: attachments)
         if provider == .codex { sendCodex(trimmed, attachments: attachments); return }
+        if let better = betterAccount?(account), better.id != account?.id {
+            items.append(.notice(id: UUID().uuidString, text: "\(account?.name ?? "L'account") è al limite: passo a \(better.name)", isError: false))
+            account = better
+        }
         do {
             try ensureProcess()
         } catch {
@@ -166,6 +173,11 @@ final class LiveChat: ObservableObject {
         if !files.isEmpty { body += (body.isEmpty ? "" : "\n\n") + "File allegati:\n" + files.map { "- \($0)" }.joined(separator: "\n") }
         if !body.isEmpty { blocks.insert(["type": "text", "text": body], at: 0) }
         return blocks
+    }
+
+    static func isLimitError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return ["usage limit", "rate limit", "limit reached", "limite di utilizzo", "out of extra usage", "quota"].contains { lower.contains($0) }
     }
 
     static func imageType(_ url: URL) -> String? {
@@ -370,6 +382,16 @@ final class LiveChat: ObservableObject {
         case "result":
             if stopRequested {
                 finishTurn(notice: "Interrotto")
+            } else if event["is_error"] as? Bool == true, Self.isLimitError(event["result"] as? String ?? ""),
+                      !switchedForLimit, let better = betterAccount?(account), better.id != account?.id, let last = lastSent {
+                // Out of quota mid-chat: same conversation, other account, same message again.
+                switchedForLimit = true
+                items.append(.notice(id: UUID().uuidString, text: "\(account?.name ?? "L'account") ha finito il limite: riprovo con \(better.name)", isError: false))
+                account = better
+                isRunning = false
+                pendingPermission = nil
+                send(last.text, attachments: last.attachments)
+                return
             } else {
                 let isError = event["is_error"] as? Bool == true
                 finishTurn(notice: isError ? (event["result"] as? String ?? "Errore durante la risposta") : nil, isError: isError)
@@ -418,6 +440,7 @@ final class LiveChat: ObservableObject {
         if let notice { items.append(.notice(id: UUID().uuidString, text: notice, isError: isError)) }
         pendingPermission = nil
         isRunning = false
+        switchedForLimit = false
         let stopped = stopRequested
         stopRequested = false
         onTurnFinished?()

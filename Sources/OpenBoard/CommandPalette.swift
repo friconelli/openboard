@@ -15,6 +15,7 @@ struct DeckCommands: Commands {
     @AppStorage(RowDensity.key) private var density: RowDensity = .comfortable
     @AppStorage(Theme.Mode.key) private var mode: Theme.Mode = .auto
     @AppStorage(Notifier.enabledKey) private var notifications = true
+    @AppStorage(DeckStore.autoSwitchKey) private var autoSwitch = true
 
     private func go(_ name: String) {
         NotificationCenter.default.post(name: .showSection, object: name)
@@ -52,6 +53,7 @@ struct DeckCommands: Commands {
                 ForEach(RowDensity.allCases) { Text($0.title).tag($0) }
             }
             Toggle("Notifiche (Claude ha finito, chiede un permesso)", isOn: $notifications)
+            Toggle("Cambia account Claude quando uno è al limite", isOn: $autoSwitch)
             Button("Mostra i filtri nascosti") { NotificationCenter.default.post(name: .resetSmartFilters, object: nil) }
             Divider()
         }

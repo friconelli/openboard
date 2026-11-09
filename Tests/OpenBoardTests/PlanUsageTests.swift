@@ -33,3 +33,19 @@ final class PlanUsageTests: XCTestCase {
                        calendar.date(from: DateComponents(year: 2026, month: 12, day: 31, hour: 1, minute: 30)))
     }
 }
+
+final class PaceTests: XCTestCase {
+    func testPace() throws {
+        let now = Date()
+        // 5-hour window, 1 hour gone, 10% used: ~50% at reset → fine.
+        let calm = PlanUsage.Window(percent: 10, resets: now.addingTimeInterval(4 * 3600))
+        XCTAssertEqual(PlanUsage.pace(calm, hours: 5, now: now)?.pace, .fine)
+        // 2 hours gone, 60% used: 30%/h → limit after 1h20, before the reset in 3h.
+        let fast = PlanUsage.Window(percent: 60, resets: now.addingTimeInterval(3 * 3600))
+        let result = try XCTUnwrap(PlanUsage.pace(fast, hours: 5, now: now))
+        XCTAssertEqual(result.pace, .tooFast)
+        XCTAssertEqual(result.exhausted!.timeIntervalSince(now), 80 * 60, accuracy: 1)
+        XCTAssertTrue(LiveChat.isLimitError("Claude AI usage limit reached|1794229200"))
+        XCTAssertFalse(LiveChat.isLimitError("Error: file not found"))
+    }
+}
