@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct AISwitchboardApp: App {
     var body: some Scene {
-        WindowGroup("AI Switchboard") {
+        WindowGroup("OpenBoard") {
             ContentView()
         }
         .defaultSize(width: 1240, height: 780)

@@ -219,7 +219,7 @@ struct OnboardingView: View {
         VStack(spacing: 22) {
             IconTile(symbol: Step.welcome.symbol, tint: Theme.coral, size: 76)
             VStack(spacing: 8) {
-                Text("AI Switchboard")
+                Text("OpenBoard")
                     .font(.system(size: 34, weight: .bold))
                 Text("Tutte le tue chat di Claude Code in un posto solo, anche con più account: cercale, riprendile, uniscile o dividile, tienile leggere e falle partire dalla cartella giusta.")
                     .font(.title3)

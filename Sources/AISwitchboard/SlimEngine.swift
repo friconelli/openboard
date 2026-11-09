@@ -365,7 +365,7 @@ enum SlimEngine {
                         let before = jsonSize(blocks[b])
                         if superseded.contains(id), before > 600 {
                             let beforeTokens = blockTokens(blocks[b])
-                            blocks[b]["content"] = "[AI Switchboard: output rimosso perché lo stesso comando o file è stato riletto più avanti]"
+                            blocks[b]["content"] = "[OpenBoard: output rimosso perché lo stesso comando o file è stato riletto più avanti]"
                             credit(.repeated, bytes: before - jsonSize(blocks[b]), tokens: contextual ? beforeTokens - blockTokens(blocks[b]) : 0)
                             changed = true
                             continue
@@ -389,7 +389,7 @@ enum SlimEngine {
                         }
                     } else if (type == "image" || type == "document"), enabled.contains(.pastedImages) {
                         let before = jsonSize(blocks[b])
-                        blocks[b] = ["type": "text", "text": "[AI Switchboard: immagine incollata rimossa]"]
+                        blocks[b] = ["type": "text", "text": "[OpenBoard: immagine incollata rimossa]"]
                         credit(.pastedImages, bytes: before - jsonSize(blocks[b]), tokens: contextual ? imageTokens : 0)
                         changed = true
                     }
@@ -405,14 +405,14 @@ enum SlimEngine {
                         replacement = "[output rimosso: ripetuto più avanti]"
                         category = .repeated
                     } else if enabled.contains(.images), let dict = result as? [String: Any], ["image", "pdf"].contains(dict["type"] as? String ?? "") {
-                        replacement = "[\(dict["type"] as? String == "pdf" ? "PDF" : "immagine") rimosso da AI Switchboard]"
+                        replacement = "[\(dict["type"] as? String == "pdf" ? "PDF" : "immagine") rimosso da OpenBoard]"
                         category = .images
                     } else if enabled.contains(.images), var items = result as? [[String: Any]], replaceImages(&items) > 0 {
                         replacement = items
                         category = .images
                     }
                     if replacement == nil, enabled.contains(.longOutputs), size > longLimit * 2 {
-                        replacement = "[dettaglio dell'output rimosso da AI Switchboard]"
+                        replacement = "[dettaglio dell'output rimosso da OpenBoard]"
                         category = .longOutputs
                     }
                     if let replacement, let category {
@@ -465,7 +465,7 @@ enum SlimEngine {
     private static func replaceImages(_ items: inout [[String: Any]]) -> Int {
         var count = 0
         for i in items.indices where ["image", "document"].contains(items[i]["type"] as? String ?? "") {
-            items[i] = ["type": "text", "text": "[AI Switchboard: immagine rimossa, Claude l'aveva già vista]"]
+            items[i] = ["type": "text", "text": "[OpenBoard: immagine rimossa, Claude l'aveva già vista]"]
             count += 1
         }
         return count
@@ -477,7 +477,7 @@ enum SlimEngine {
             guard text.count > longLimit else { return nil }
             let head = text.prefix(2500)
             let tail = text.suffix(1000)
-            return "\(head)\n\n[… AI Switchboard: \(text.count - 3500) caratteri rimossi …]\n\n\(tail)"
+            return "\(head)\n\n[… OpenBoard: \(text.count - 3500) caratteri rimossi …]\n\n\(tail)"
         }
         if let text = block["content"] as? String, let short = cut(text) {
             block["content"] = short

@@ -318,7 +318,11 @@ struct ContentView: View {
 
     private func row(_ title: String, symbol: String, tint: Color, count: Int? = nil, highlight: Color? = nil) -> some View {
         HStack(spacing: 10) {
-            IconTile(symbol: symbol, tint: tint, size: 24)
+            // Line icon in the text colour, like OpenChamber's sidebar: colour is kept for status.
+            Image(systemName: Theme.line(symbol))
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
             Text(title)
             Spacer()
             if let count {
@@ -327,8 +331,8 @@ struct ContentView: View {
                         .font(.caption.weight(.semibold).monospacedDigit())
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(highlight.opacity(0.18), in: Capsule())
-                        .foregroundStyle(highlight)
+                        .background(Theme.soft(highlight).opacity(0.14), in: Capsule())
+                        .foregroundStyle(Theme.soft(highlight))
                 } else {
                     Text("\(count)")
                         .font(.caption.monospacedDigit())
@@ -336,6 +340,6 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 1)
     }
 }

@@ -95,13 +95,13 @@ struct OverviewView: View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Image(systemName: symbol).foregroundStyle(tint)
+                    Image(systemName: Theme.line(symbol)).foregroundStyle(Theme.soft(tint))
                     Text(title).font(.headline)
                     Text("\(items.count)")
                         .font(.caption.weight(.semibold).monospacedDigit())
                         .padding(.horizontal, 6)
-                        .background(tint.opacity(0.18), in: Capsule())
-                        .foregroundStyle(tint)
+                        .background(Theme.soft(tint).opacity(0.14), in: Capsule())
+                        .foregroundStyle(Theme.soft(tint))
                 }
                 .help(hint)
                 Text(hint)

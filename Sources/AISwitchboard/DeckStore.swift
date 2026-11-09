@@ -633,7 +633,7 @@ final class DeckStore: ObservableObject {
     private func appendHistory(_ sessionID: String, cwd: String, title: String, account: ClaudeAccount) throws {
         let url = account.configDir.appendingPathComponent("history.jsonl")
         let record: [String: Any] = [
-            "display": "[AI Switchboard] \(title)",
+            "display": "[OpenBoard] \(title)",
             "pastedContents": [String: Any](),
             "timestamp": Int(Date().timeIntervalSince1970 * 1000),
             "project": cwd,

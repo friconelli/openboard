@@ -314,7 +314,7 @@ enum SplitEngine {
         var previous: String?
         if let summary = topic.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
             let intro = """
-            This session is being continued from a previous conversation that was split by topic in AI Switchboard. \
+            This session is being continued from a previous conversation that was split by topic in OpenBoard. \
             The original conversation was “\(chat.displayTitle)”; this chat keeps only the part about “\(topic.title)”. \
             The summary below covers the context from the original conversation that matters for this topic.
             """

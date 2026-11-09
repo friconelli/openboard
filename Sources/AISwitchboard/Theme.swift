@@ -65,13 +65,50 @@ enum Theme {
     static var hairline: Color { isWarm ? warm(light: 0xE6E3DE, dark: 0x242323, alpha: 0.75) : Color.primary.opacity(0.08) }
     static let cardRadius: CGFloat = 16
 
+    // Muted status colours (OpenChamber's success/warning/error/info tokens, light and dark).
+    static var success: Color { warm(light: 0x5E8F3A, dark: 0x76AD4F) }
+    static var warning: Color { warm(light: 0xA86A0E, dark: 0xC67F13) }
+    static var danger: Color { warm(light: 0xB8483A, dark: 0xDA5B4A) }
+    static var info: Color { warm(light: 0x3A80BC, dark: 0x479FE6) }
+
+    /// Dusty versions of the system colours, used for icons and badges.
+    static let dusty: [Color] = [
+        warm(light: 0x4F8A8B, dark: 0x6FA8A9),   // teal
+        warm(light: 0xB0703A, dark: 0xC98C55),   // amber
+        warm(light: 0x6E8F55, dark: 0x8AAA6E),   // sage
+        warm(light: 0x8A6FA8, dark: 0xA48BC0),   // lavender
+        warm(light: 0x5B7FA8, dark: 0x7C9CC2),   // slate blue
+        warm(light: 0xA86A7F, dark: 0xC28A9C),   // rose
+        warm(light: 0x8C7A62, dark: 0xA8977E),   // taupe
+    ]
+
+    /// The outline version of an SF Symbol: OpenChamber draws line icons (Remix Icon), filled
+    /// shapes only for status.
+    static func line(_ symbol: String) -> String {
+        let outline = symbol.replacingOccurrences(of: ".fill", with: "")
+        return NSImage(systemSymbolName: outline, accessibilityDescription: nil) != nil ? outline : symbol
+    }
+
+    /// The dusty counterpart of a system colour, so tints stay recognisable but quieter.
+    static func soft(_ color: Color) -> Color {
+        switch color {
+        case .teal, .mint, .cyan: return dusty[0]
+        case .orange, .yellow, .brown: return dusty[1]
+        case .green: return dusty[2]
+        case .purple, .indigo: return dusty[3]
+        case .blue: return dusty[4]
+        case .pink, .red: return dusty[5]
+        case .gray: return dusty[6]
+        default: return color
+        }
+    }
+
     static func color(forContext context: String) -> Color {
         switch context.lowercased() {
-        case "personale", "personal": return .pink
-        case "lavoro", "work", "studiogusto": return .indigo
+        case "personale", "personal": return dusty[5]
+        case "lavoro", "work", "studiogusto": return dusty[3]
         default:
-            let palette: [Color] = [.teal, .orange, .green, .purple, .blue, .mint, .brown]
-            return palette[context.unicodeScalars.reduce(0) { $0 + Int($1.value) } % palette.count]
+            return dusty[context.unicodeScalars.reduce(0) { $0 + Int($1.value) } % dusty.count]
         }
     }
 
@@ -85,8 +122,8 @@ enum Theme {
 
     /// Stable colour per account name.
     static func color(forAccount name: String) -> Color {
-        let palette: [Color] = [.blue, .purple, .teal, .pink, .indigo, .green]
-        if name == "predefinito" { return .gray }
+        let palette: [Color] = [dusty[4], dusty[3], dusty[0], dusty[5], dusty[2], dusty[1]]
+        if name == "predefinito" { return dusty[6] }
         let sum = name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return palette[sum % palette.count]
     }
@@ -103,7 +140,7 @@ struct AccountBadge: View {
             .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
             .padding(.horizontal, compact ? 5 : 7)
             .padding(.vertical, compact ? 1 : 2)
-            .background(color.opacity(0.16), in: Capsule())
+            .background(color.opacity(0.11), in: Capsule())
             .foregroundStyle(color)
             .help(account.email ?? account.name)
     }
@@ -118,7 +155,7 @@ struct ContextBadge: View {
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Theme.color(forContext: context).opacity(0.15), in: Capsule())
+                .background(Theme.color(forContext: context).opacity(0.11), in: Capsule())
                 .foregroundStyle(Theme.color(forContext: context))
         } else {
             Label("Da assegnare", systemImage: "tray")
@@ -134,11 +171,11 @@ struct StatusDot: View {
 
     var body: some View {
         Circle()
-            .fill(busy ? Color.orange : Color.green)
+            .fill(busy ? Theme.warning : Theme.success)
             .frame(width: 8, height: 8)
             .overlay(
                 Circle()
-                    .stroke(busy ? Color.orange : Color.green, lineWidth: 2)
+                    .stroke(busy ? Theme.warning : Theme.success, lineWidth: 2)
                     .scaleEffect(pulse ? 2.3 : 1)
                     .opacity(pulse ? 0 : 0.7)
             )
@@ -155,20 +192,22 @@ struct IconTile: View {
     let tint: Color
     var size: CGFloat = 36
 
+    /// A quiet tile: the tint as a light wash with the glyph in the tint, instead of a solid
+    /// gradient block, so a page full of icons doesn't shout.
     var body: some View {
+        let color = Theme.soft(tint)
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(LinearGradient(
-                colors: [tint.opacity(0.85), tint],
-                startPoint: .top,
-                endPoint: .bottom
-            ))
+            .fill(color.opacity(0.14))
+            .overlay(
+                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+                    .strokeBorder(color.opacity(0.18), lineWidth: 0.5)
+            )
             .frame(width: size, height: size)
             .overlay(
-                Image(systemName: symbol)
-                    .font(.system(size: size * 0.46, weight: .semibold))
-                    .foregroundStyle(.white)
+                Image(systemName: Theme.line(symbol))
+                    .font(.system(size: size * 0.44, weight: .regular))
+                    .foregroundStyle(color)
             )
-            .shadow(color: tint.opacity(0.3), radius: 4, y: 2)
     }
 }
 
@@ -356,7 +395,7 @@ struct ContextMeter: View {
     private var limit: Int { window ?? (tokens > 200_000 ? 1_000_000 : 200_000) }
 
     private var fraction: Double { min(1, Double(tokens) / Double(limit)) }
-    private var tint: Color { fraction < 0.5 ? .green : fraction < 0.8 ? .orange : .red }
+    private var tint: Color { fraction < 0.5 ? Theme.success : fraction < 0.8 ? Theme.warning : Theme.danger }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -392,7 +431,7 @@ struct UndoToast: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.success)
                 Text(action.message)
                     .lineLimit(1)
                 Spacer(minLength: 12)
@@ -433,7 +472,7 @@ struct ContextRing: View {
 
     private var limit: Int { tokens > 200_000 ? 1_000_000 : 200_000 }
     private var fraction: Double { min(1, Double(tokens) / Double(limit)) }
-    private var tint: Color { fraction < 0.5 ? .green : fraction < 0.8 ? .orange : .red }
+    private var tint: Color { fraction < 0.5 ? Theme.success : fraction < 0.8 ? Theme.warning : Theme.danger }
 
     var body: some View {
         ZStack {

@@ -7,7 +7,9 @@ import AppKit
 final class Updater: ObservableObject {
     static let shared = Updater()
     static let repository = "friconelli/ai-switchboard"
-    static let assetName = "AISwitchboard.zip"
+    static let assetName = "OpenBoard.zip"
+    /// Name used up to 1.1.0; releases carry both so older installs keep updating.
+    static let legacyAssetName = "AISwitchboard.zip"
 
     struct Release: Equatable {
         let version: String
@@ -71,7 +73,7 @@ final class Updater: ObservableObject {
                 let assets: [Asset]
             }
             let payload = try JSONDecoder().decode(Payload.self, from: data)
-            guard let asset = payload.assets.first(where: { $0.name == Self.assetName }) else {
+            guard let asset = (payload.assets.first(where: { $0.name == Self.assetName }) ?? payload.assets.first(where: { $0.name == Self.legacyAssetName })) else {
                 throw ChatOperationError.io("La release \(payload.tag_name) non contiene \(Self.assetName)")
             }
             latest = Release(
@@ -101,7 +103,7 @@ final class Updater: ObservableObject {
         do {
             let (downloaded, _) = try await URLSession.shared.download(from: latest.downloadURL)
             state = .installing
-            let work = fm.temporaryDirectory.appendingPathComponent("AISwitchboard-update-\(UUID().uuidString)")
+            let work = fm.temporaryDirectory.appendingPathComponent("OpenBoard-update-\(UUID().uuidString)")
             try fm.createDirectory(at: work, withIntermediateDirectories: true)
             let zip = work.appendingPathComponent(Self.assetName)
             try fm.moveItem(at: downloaded, to: zip)
@@ -111,7 +113,7 @@ final class Updater: ObservableObject {
                   let bundle = Bundle(url: app),
                   bundle.bundleIdentifier == Bundle.main.bundleIdentifier,
                   bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == latest.version else {
-                throw ChatOperationError.io("Il pacchetto scaricato non è una versione valida di AI Switchboard.")
+                throw ChatOperationError.io("Il pacchetto scaricato non è una versione valida di OpenBoard.")
             }
             // Downloaded by the app itself it has no quarantine flag, but clear it in case.
             try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path])

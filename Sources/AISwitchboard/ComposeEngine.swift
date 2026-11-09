@@ -123,7 +123,7 @@ enum ComposeEngine {
         let temp = directory.appendingPathComponent(".\(id).jsonl.partial")
 
         let intro = """
-        This session is being continued from a previous conversation. It was prepared in AI Switchboard from \
+        This session is being continued from a previous conversation. It was prepared in OpenBoard from \
         the user's earlier conversations (\(sourceTitles.map { "“\($0)”" }.joined(separator: ", "))): \
         the summary below holds what matters for the request the user is about to make.
         """

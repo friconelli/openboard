@@ -1,18 +1,20 @@
-# AI Switchboard
+# OpenBoard
+
+*(fino alla 1.1.0 si chiamava OpenBoard)*
 
 App macOS (SwiftUI) per gestire le chat di Claude Code, anche con più account: cercarle, riprenderle, unirle, dividerle, snellirle, organizzarle in aree di lavoro e partire con chat già informate dallo storico.
 
 ## Installazione
 
-1. Scarica `AISwitchboard.zip` dall'[ultima release](https://github.com/friconelli/ai-switchboard/releases/latest), aprilo e trascina **AISwitchboard.app** in Applicazioni.
-2. L'app non è firmata con un certificato Apple, quindi al primo avvio macOS la blocca: apri **Impostazioni di Sistema → Privacy e sicurezza** e, in fondo, premi **Apri comunque** accanto ad AISwitchboard (in alternativa, da Terminale: `xattr -dr com.apple.quarantine /Applications/AISwitchboard.app`). Serve solo la prima volta: gli aggiornamenti scaricati dall'app non lo richiedono.
+1. Scarica `OpenBoard.zip` dall'[ultima release](https://github.com/friconelli/ai-switchboard/releases/latest), aprilo e trascina **OpenBoard.app** in Applicazioni.
+2. L'app non è firmata con un certificato Apple, quindi al primo avvio macOS la blocca: apri **Impostazioni di Sistema → Privacy e sicurezza** e, in fondo, premi **Apri comunque** accanto a OpenBoard (in alternativa, da Terminale: `xattr -dr com.apple.quarantine /Applications/OpenBoard.app`). Serve solo la prima volta: gli aggiornamenti scaricati dall'app non lo richiedono.
 3. Al primo avvio la **configurazione guidata** (si può saltare in qualsiasi momento con *Salta per ora*) chiede gli account Claude (quelli già presenti o nuovi, con login), le cartelle delle chat e dei progetti, i contesti e le prime aree di lavoro. Si riapre da Account → *Configurazione guidata…*.
 
 Requisiti: macOS 14+, [Claude Code](https://claude.com/claude-code) installato. [Warp](https://www.warp.dev) consigliato (altrimenti usa Terminale).
 
 ## Aggiornamenti
 
-L'app controlla all'avvio (al massimo ogni 6 ore) l'ultima release su GitHub; se ce n'è una nuova lo segnala in fondo alla barra laterale. **Aggiorna e riavvia** scarica `AISwitchboard.zip`, verifica che sia AI Switchboard con la versione attesa, sostituisce l'app (la vecchia va nel Cestino) e la riapre. Controllo manuale da *AI Switchboard → Controlla aggiornamenti…* o dalla pagina Account, dove si può disattivare il controllo automatico.
+L'app controlla all'avvio (al massimo ogni 6 ore) l'ultima release su GitHub; se ce n'è una nuova lo segnala in fondo alla barra laterale. **Aggiorna e riavvia** scarica `OpenBoard.zip`, verifica che sia OpenBoard con la versione attesa, sostituisce l'app (la vecchia va nel Cestino) e la riapre. Controllo manuale da *OpenBoard → Controlla aggiornamenti…* o dalla pagina Account, dove si può disattivare il controllo automatico.
 
 Per pubblicare una versione: `Scripts/release.sh 1.2.0 "Note di rilascio"` (imposta la versione, compila, crea lo zip e la release con `gh`).
 
@@ -53,7 +55,7 @@ Configurazione in `~/Library/Application Support/AISwitchboard/config.json`.
 
 ## Warp
 
-Con **Apertura diretta** attiva (pagina Account) l'app aggiunge a `~/.zshrc` un blocco delimitato da `# >>> AI Switchboard >>>` (salvando prima una copia in `~/.ai-switchboard/zshrc.backup`). “Riprendi” e “Nuova chat” scrivono il comando in `~/.ai-switchboard/launch/<id>.zsh` con la cartella sulla prima riga e aprono una scheda Warp lì: al primo prompt il blocco esegue il comando di quella cartella (solo se più recente di 30 secondi, una volta per scheda). Disattivandola il blocco viene rimosso.
+Con **Apertura diretta** attiva (pagina Account) l'app aggiunge a `~/.zshrc` un blocco delimitato da `# >>> OpenBoard >>>` (salvando prima una copia in `~/.ai-switchboard/zshrc.backup`). “Riprendi” e “Nuova chat” scrivono il comando in `~/.ai-switchboard/launch/<id>.zsh` con la cartella sulla prima riga e aprono una scheda Warp lì: al primo prompt il blocco esegue il comando di quella cartella (solo se più recente di 30 secondi, una volta per scheda). Disattivandola il blocco viene rimosso.
 
 Se l'apertura diretta non è attiva, al primo “Riprendi” l'app chiede di attivarla (“Attiva e apri”) oppure apre la scheda lasciando il comando negli appunti. Il vecchio metodo con ⌘V simulato è stato tolto: con la firma ad-hoc il permesso Accessibilità si perde a ogni build. Senza Warp usa Terminale.
 
