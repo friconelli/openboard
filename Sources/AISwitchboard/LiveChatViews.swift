@@ -2,7 +2,7 @@ import SwiftUI
 
 extension Theme {
     /// OpenChamber's user message background, light and dark.
-    static var userBubble: Color { isWarm ? warm(light: 0xF3E9E3, dark: 0x2D1C12) : coral.opacity(0.14) }
+    static var userBubble: Color { isWarm ? warm(light: 0xE5EEE7, dark: 0x1D2A22) : coral.opacity(0.14) }
 
     static func toolSymbol(_ name: String) -> String {
         switch name {

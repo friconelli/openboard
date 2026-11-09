@@ -70,7 +70,7 @@ AISW_REAL_CHATS=/percorso/a.jsonl:/percorso/b.jsonl swift test --filter RealChat
 
 ```bash
 ./Scripts/build_app.sh --install
-swift Scripts/generate_icon.swift AppIcon.iconset && iconutil -c icns AppIcon.iconset -o Resources/AppIcon.icns
+Scripts/make_icon.sh   # icona da Resources/AppIcon-1024.png
 ```
 
 Richiede macOS 14+ e Xcode.

@@ -7,7 +7,7 @@ enum Theme {
     enum Appearance: String, CaseIterable, Identifiable {
         case system, warm
         var id: String { rawValue }
-        var title: String { self == .system ? "Originale" : "Caldo" }
+        var title: String { self == .system ? "Sistema" : "OpenBoard" }
     }
 
     /// Light, dark or whatever macOS is using; independent of the palette.
@@ -52,21 +52,23 @@ enum Theme {
         })
     }
 
-    static var coral: Color { isWarm ? warm(light: 0xB35017, dark: 0xDA7C47) : Color(red: 0.85, green: 0.47, blue: 0.34) }
+    // Brand colour: sage. `coral` keeps its name for the many places that use it.
+    static var coral: Color { isWarm ? warm(light: 0x4E7D5D, dark: 0x7FA88B) : warm(light: 0x4E7D5D, dark: 0x7FA88B) }
     static var accent: Color { coral }
-    static var clay: Color { isWarm ? warm(light: 0x8A3A10, dark: 0xA8522A) : Color(red: 0.60, green: 0.26, blue: 0.20) }
+    static var clay: Color { warm(light: 0x3A5E46, dark: 0x5E8466) }
     static var brandGradient: LinearGradient {
         LinearGradient(colors: [coral, clay], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
-    static var cardBackground: Color { isWarm ? warm(light: 0xFFFFFF, dark: 0x1B1918) : Color(nsColor: .controlBackgroundColor) }
+    static var cardBackground: Color { isWarm ? warm(light: 0xFFFFFF, dark: 0x1A1D1B) : Color(nsColor: .controlBackgroundColor) }
     /// Page background; nil leaves the system one.
-    static var pageBackground: Color? { isWarm ? warm(light: 0xFDFCFA, dark: 0x120F0E) : nil }
-    static var sidebarBackground: Color? { isWarm ? warm(light: 0xF3F2F0, dark: 0x0E0C0B) : nil }
-    static var hairline: Color { isWarm ? warm(light: 0xE6E3DE, dark: 0x242323, alpha: 0.75) : Color.primary.opacity(0.08) }
+    // Near-neutral backgrounds with a hint of green, as in the icon (#151816).
+    static var pageBackground: Color? { isWarm ? warm(light: 0xFBFCFA, dark: 0x121413) : nil }
+    static var sidebarBackground: Color? { isWarm ? warm(light: 0xF1F3F0, dark: 0x0E100F) : nil }
+    static var hairline: Color { isWarm ? warm(light: 0xE1E5E0, dark: 0x232724, alpha: 0.75) : Color.primary.opacity(0.08) }
     static let cardRadius: CGFloat = 16
 
     // Muted status colours (OpenChamber's success/warning/error/info tokens, light and dark).
-    static var success: Color { warm(light: 0x5E8F3A, dark: 0x76AD4F) }
+    static var success: Color { warm(light: 0x6B8A2E, dark: 0x9DB45A) }
     static var warning: Color { warm(light: 0xA86A0E, dark: 0xC67F13) }
     static var danger: Color { warm(light: 0xB8483A, dark: 0xDA5B4A) }
     static var info: Color { warm(light: 0x3A80BC, dark: 0x479FE6) }
