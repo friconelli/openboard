@@ -18,6 +18,7 @@ cp "$ROOT_DIR/.build/release/$APP_NAME" "$APP_DIR/Contents/MacOS/$APP_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp "$ROOT_DIR/Resources/AppIcon-1024.png" "$APP_DIR/Contents/Resources/AppIcon-1024.png"
 
 echo "==> Code signing (ad-hoc)"
 codesign --force --deep --sign - "$APP_DIR"

@@ -102,6 +102,8 @@ struct ContentView: View {
     @State private var focusedChatID: String?
     @State private var showPalette = false
     @State private var showNewChat = false
+    @State private var showRemote = false
+    @ObservedObject private var remote = RemoteServer.shared
     @StateObject private var chatsUI = ChatsUI()
     /// Which chats the list on the left shows.
     @State private var listScope: ChatScope = .all
@@ -149,6 +151,8 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in showNewChat = true }
+        .onReceive(NotificationCenter.default.publisher(for: .showRemote)) { _ in showRemote = true }
+        .sheet(isPresented: $showRemote) { RemoteAccessSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .focusChat)) { note in
             if let id = note.object as? String { section = .chats(.all); focusedChatID = id }
         }
@@ -160,6 +164,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.refreshPlanUsage()
+            RemoteServer.shared.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             store.closeAllLiveChats()
@@ -185,6 +190,7 @@ struct ContentView: View {
             }
             store.start()
             store.startPlanUsageMonitor()
+            RemoteServer.shared.attach(store)
             showOnboarding = store.config.onboardingDone == false || UserDefaults.standard.bool(forKey: "debugOnboarding")
             updater.checkIfDue()
             if UserDefaults.standard.bool(forKey: "debugInstallUpdate") {
@@ -194,6 +200,9 @@ struct ContentView: View {
             if let name = defaults.string(forKey: "debugSection"), let debug = DeckSection(debugName: name) { section = debug }
             if defaults.bool(forKey: "debugNewChat") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showNewChat = true }
+            }
+            if defaults.bool(forKey: "debugRemoteSheet") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showRemote = true }
             }
             if defaults.bool(forKey: "debugPalette") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showPalette = true }
@@ -368,6 +377,8 @@ struct ContentView: View {
             railButton("Aree di lavoro", "folder", isOn: section == .areas) { section = .areas }
             railButton("Memoria", "brain.head.profile", isOn: section == .memory) { section = .memory }
             Spacer()
+            railButton(remote.status == .running ? "iPhone collegabile: mostra il link (⌘L)" : "Link per iPhone (⌘L)", "iphone",
+                       isOn: remote.status == .running) { showRemote = true }
             railButton("Sessioni attive", "bolt.horizontal", badge: store.activeSessions.count, isOn: section == .active) { section = .active }
             railButton("Account", "person.2", isOn: section == .accounts) { section = .accounts }
         }

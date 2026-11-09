@@ -7,6 +7,7 @@ extension Notification.Name {
     static let newChat = Notification.Name("newChat")
     static let focusChat = Notification.Name("focusChat")
     static let toggleTerminal = Notification.Name("toggleTerminal")
+    static let showRemote = Notification.Name("showRemote")
 }
 
 /// Menu bar commands: the palette, jumps to sections and the look of the app.
@@ -39,6 +40,8 @@ struct DeckCommands: Commands {
             Button("Attività programmate") { go("tasks") }.keyboardShortcut("6")
             Divider()
             Button("Nuova chat guidata") { go("compose") }.keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Link per iPhone…") { NotificationCenter.default.post(name: .showRemote, object: nil) }
+                .keyboardShortcut("l")
             Button("Terminale della chat") { NotificationCenter.default.post(name: .toggleTerminal, object: nil) }
                 .keyboardShortcut("j")
         }

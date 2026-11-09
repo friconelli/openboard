@@ -57,6 +57,7 @@ A sinistra la lista delle chat con filtro, ricerca e consumo del piano; al centr
 - **Consumo del piano** per account (5 ore e settimana, tempo al reset, previsione del ritmo) da `/usage`, che non consuma messaggi. Con un account Claude oltre il 95% la chat in app passa da sola a quello con più margine (disattivabile da *Vista*).
 - **Attività programmate**: messaggi a Claude o Codex a orari fissi tramite launchd, anche ad app chiusa; registri in `~/.openboard/tasks`.
 - **Archivio**: nasconde le chat dalle liste senza toccare i file, con pulizia automatica opzionale.
+- **iPhone** (⌘L o icona a destra): pagina web con lista, chat, permessi e consumo, sulle stesse chat del Mac. Spenta di default, raggiungibile solo sulla rete Tailscale e protetta da un link segreto rigenerabile.
 - **Notifiche** quando l'agente finisce o chiede un permesso.
 
 ## Contesti e aree di lavoro

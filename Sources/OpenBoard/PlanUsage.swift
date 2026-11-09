@@ -131,6 +131,7 @@ enum PlanUsage {
 /// Plan usage of every account, always on screen at the bottom of the sidebar.
 struct PlanUsagePanel: View {
     @ObservedObject var store: DeckStore
+    @AppStorage("usagePanelCollapsed") private var collapsed = false
 
     var body: some View {
         // The default ~/.claude is usually the same login as one of the named accounts.
@@ -140,6 +141,8 @@ struct PlanUsagePanel: View {
         if !accounts.isEmpty || codex != nil {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 VStack(alignment: .leading, spacing: 8) {
+                    header(accounts: accounts, codex: codex)
+                    if !collapsed {
                     ForEach(accounts) { account in
                         if let usage = store.planUsage[account.id] {
                             block(account.name, tint: Theme.color(forAccount: account.name), usage, now: context.date)
@@ -148,6 +151,7 @@ struct PlanUsagePanel: View {
                     if let codex {
                         block("Codex", tint: Theme.soft(.blue), codex, now: context.date)
                             .help("Dall'ultima sessione di Codex, aggiornato \(relative(codex.updated))")
+                    }
                     }
                 }
                 .padding(12)
@@ -160,6 +164,43 @@ struct PlanUsagePanel: View {
             .contextMenu { Button("Aggiorna consumo") { store.refreshPlanUsage(force: true) } }
             .help("Consumo del piano Claude letto da /usage, aggiornato ogni 5 minuti. Clic destro per aggiornare ora.")
         }
+    }
+
+    /// Always visible: click to fold the panel down to the 5-hour figure of each account.
+    private func header(accounts: [ClaudeAccount], codex: PlanUsage.Snapshot?) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { collapsed.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Consumo").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if collapsed {
+                    ForEach(accounts) { account in
+                        if let usage = store.planUsage[account.id] { compact(account.name, usage) }
+                    }
+                    if let codex { compact("Codex", codex) }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: collapsed ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(collapsed ? "Espandi il consumo del piano" : "Comprimi il consumo del piano")
+    }
+
+    private func compact(_ name: String, _ usage: PlanUsage.Snapshot) -> some View {
+        let percent = max(usage.session?.percent ?? 0, usage.week?.percent ?? 0)
+        let tint = percent < 60 ? Theme.success : percent < 85 ? Theme.warning : Theme.danger
+        return HStack(spacing: 3) {
+            Text(name).foregroundStyle(.secondary)
+            Text("\(percent)%").fontWeight(.semibold).foregroundStyle(tint)
+        }
+        .font(.caption2.monospacedDigit())
+        .lineLimit(1)
+        .fixedSize()
+        .help("\(name): 5 ore \(usage.session?.percent ?? 0)%, settimana \(usage.week?.percent ?? 0)%")
     }
 
     private func block(_ name: String, tint: Color, _ usage: PlanUsage.Snapshot, now: Date) -> some View {
