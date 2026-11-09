@@ -144,6 +144,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             store.closeAllLiveChats()
+            TerminalStore.shared.closeAll()
         }
         .onReceive(NotificationCenter.default.publisher(for: .showSection)) { note in
             if let name = note.object as? String, let target = DeckSection(debugName: name) { section = target }

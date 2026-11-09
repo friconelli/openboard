@@ -6,6 +6,7 @@ extension Notification.Name {
     static let resetSmartFilters = Notification.Name("resetSmartFilters")
     static let newChat = Notification.Name("newChat")
     static let focusChat = Notification.Name("focusChat")
+    static let toggleTerminal = Notification.Name("toggleTerminal")
 }
 
 /// Menu bar commands: the palette, jumps to sections and the look of the app.
@@ -36,6 +37,8 @@ struct DeckCommands: Commands {
             Button("Sessioni attive") { go("active") }.keyboardShortcut("5")
             Divider()
             Button("Nuova chat guidata") { go("compose") }.keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Terminale della chat") { NotificationCenter.default.post(name: .toggleTerminal, object: nil) }
+                .keyboardShortcut("j")
         }
         CommandGroup(after: .toolbar) {
             Picker("Tema", selection: $appearance) {

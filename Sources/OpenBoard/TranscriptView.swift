@@ -14,6 +14,7 @@ struct TranscriptView: View {
     @State private var live: LiveChat?
     @State private var showFiles = false
     @State private var showGit = false
+    @State private var showTerminal = false
 
     /// Chatting here while the same chat is open in a terminal would write it twice.
     private var blockedReason: String? {
@@ -25,6 +26,51 @@ struct TranscriptView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if showTerminal {
+                VSplitView {
+                    chatArea
+                        .frame(minHeight: 200)
+                    TerminalDock(folder: chat.workingDirectory) { showTerminal = false }
+                        .frame(minHeight: 120, idealHeight: 240)
+                }
+            } else {
+                chatArea
+            }
+        }
+        .background(Theme.pageBackground ?? Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $showFiles) { ChangedFilesSheet(chat: chat) }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleTerminal)) { _ in showTerminal.toggle() }
+        .sheet(isPresented: $showGit) { GitSheet(store: store, folder: chat.workingDirectory) }
+        .onAppear {
+            Notifier.shared.visibleChatID = chat.id
+            if UserDefaults.standard.bool(forKey: "debugTerminal") { showTerminal = true }
+            live = store.liveChat(for: chat)
+            // Tests and screenshots: `-debugChat <id> -debugSend "…" [-debugModel haiku] [-debugMode manual]`.
+            let defaults = UserDefaults.standard
+            if defaults.string(forKey: "debugChat") == chat.id, let message = defaults.string(forKey: "debugSend"), let live,
+               live.items.isEmpty {
+                live.model = defaults.string(forKey: "debugModel")
+                if let mode = defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) { live.mode = mode }
+                live.send(message)
+            }
+        }
+        .task(id: "\(chat.id)|\(chat.sizeBytes)|\(chat.modifiedAt.timeIntervalSince1970)|\(live?.isRunning == true)") {
+            // While Claude answers, the turn is shown live: the history stops where it started.
+            let running = live?.isRunning == true
+            let cutoff = running ? live?.historyCutoff : nil
+            if running && !messages.isEmpty { return }
+            isLoading = true
+            let url = chat.fileURL
+            let result = await Task.detached(priority: .userInitiated) { TranscriptReader.read(url, upTo: cutoff) }.value
+            messages = result.messages
+            truncated = result.truncated
+            isLoading = false
+            if !running { live?.clearFinishedTurns() }
+        }
+    }
+
+    private var chatArea: some View {
+        VStack(spacing: 0) {
             if isLoading && messages.isEmpty {
                 ProgressView("Caricamento conversazione…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,35 +108,7 @@ struct TranscriptView: View {
             if let live {
                 ChatComposer(store: store, live: live, blockedReason: blockedReason)
             }
-        }
-        .background(Theme.pageBackground ?? Color(nsColor: .windowBackgroundColor))
-        .sheet(isPresented: $showFiles) { ChangedFilesSheet(chat: chat) }
-        .sheet(isPresented: $showGit) { GitSheet(store: store, folder: chat.workingDirectory) }
-        .onAppear {
-            Notifier.shared.visibleChatID = chat.id
-            live = store.liveChat(for: chat)
-            // Tests and screenshots: `-debugChat <id> -debugSend "…" [-debugModel haiku] [-debugMode manual]`.
-            let defaults = UserDefaults.standard
-            if defaults.string(forKey: "debugChat") == chat.id, let message = defaults.string(forKey: "debugSend"), let live,
-               live.items.isEmpty {
-                live.model = defaults.string(forKey: "debugModel")
-                if let mode = defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) { live.mode = mode }
-                live.send(message)
-            }
-        }
-        .task(id: "\(chat.id)|\(chat.sizeBytes)|\(chat.modifiedAt.timeIntervalSince1970)|\(live?.isRunning == true)") {
-            // While Claude answers, the turn is shown live: the history stops where it started.
-            let running = live?.isRunning == true
-            let cutoff = running ? live?.historyCutoff : nil
-            if running && !messages.isEmpty { return }
-            isLoading = true
-            let url = chat.fileURL
-            let result = await Task.detached(priority: .userInitiated) { TranscriptReader.read(url, upTo: cutoff) }.value
-            messages = result.messages
-            truncated = result.truncated
-            isLoading = false
-            if !running { live?.clearFinishedTurns() }
-        }
+                }
     }
 
     private var header: some View {
@@ -148,6 +166,8 @@ struct TranscriptView: View {
                 ToolButton(title: "Rinomina", symbol: "pencil") { actions.rename(chat) }
                 ToolButton(title: "File", symbol: "doc.on.doc") { showFiles = true }
                     .help("File modificati in questa chat, con le differenze")
+                ToolButton(title: "Terminale", symbol: "terminal") { showTerminal.toggle() }
+                    .help("Terminale nella cartella della chat (⌘J)")
                 ToolButton(title: "Git", symbol: "arrow.triangle.branch") { showGit = true }
                     .help("Stato, differenze, commit e push della cartella della chat")
                 Menu {
