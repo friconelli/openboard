@@ -57,6 +57,7 @@ enum SmartFilter: String, CaseIterable, Hashable, Identifiable {
 
 enum ChatScope: Hashable {
     case all
+    case archived
     case working
     case smart(SmartFilter)
     case context(String)
@@ -87,6 +88,7 @@ enum DeckSection: Hashable {
         case "chats": self = .chats(.all)
         case "working": self = .chats(.working)
         case "tasks": self = .tasks
+        case "archive": self = .chats(.archived)
         default: return nil
         }
     }
@@ -224,19 +226,19 @@ struct ContentView: View {
                     row("In lavorazione", symbol: "flag.fill", tint: .orange, count: working, highlight: working > 0 ? .orange : nil)
                         .tag(DeckSection.chats(.working))
                         .help("Le chat che stai seguendo adesso: le aggiungi e le togli tu (menu contestuale o dettaglio)")
-                    row("Tutte", symbol: "bubble.left.and.bubble.right.fill", tint: Theme.coral, count: store.chats.count)
+                    row("Tutte", symbol: "bubble.left.and.bubble.right.fill", tint: Theme.coral, count: store.visibleChats.count)
                         .tag(DeckSection.chats(.all))
                     ForEach(store.config.contexts, id: \.self) { context in
                         row(context, symbol: Theme.symbol(forContext: context), tint: Theme.color(forContext: context),
-                            count: store.chats.filter { store.context(for: $0) == context }.count)
+                            count: store.visibleChats.filter { store.context(for: $0) == context }.count)
                             .tag(DeckSection.chats(.context(context)))
                     }
-                    let unassigned = store.chats.filter { store.context(for: $0) == nil }.count
+                    let unassigned = store.visibleChats.filter { store.context(for: $0) == nil }.count
                     row("Da assegnare", symbol: "tray.fill", tint: .gray, count: unassigned, highlight: unassigned > 0 ? .gray : nil)
                         .tag(DeckSection.chats(.unassigned))
                 }
                 let smart = SmartFilter.allCases.filter { !(store.config.hiddenSmartFilters ?? []).contains($0.rawValue) }
-                    .map { filter in (filter, store.chats.filter { store.matches($0, filter) }.count) }
+                    .map { filter in (filter, store.visibleChats.filter { store.matches($0, filter) }.count) }
                     .filter { $0.1 > 0 }
                 if !smart.isEmpty {
                     Section("Filtri") {
@@ -251,10 +253,13 @@ struct ContentView: View {
                     }
                 }
                 Section("Organizza") {
-                    let advice = store.chats.filter { store.hasAdvice(for: $0) }.count
+                    let advice = store.visibleChats.filter { store.hasAdvice(for: $0) }.count
                     row("Consigli", symbol: "lightbulb.fill", tint: .yellow, count: advice, highlight: advice > 0 ? .orange : nil)
                         .tag(DeckSection.insights)
                         .help("Chat da snellire o dividere e modello giusto per ogni lavoro")
+                    row("Archivio", symbol: "archivebox.fill", tint: .gray, count: store.archivedChats.count)
+                        .tag(DeckSection.chats(.archived))
+                        .help("Chat archiviate: nascoste dalle liste, i file restano dove sono")
                     row("Attività", symbol: "clock.arrow.circlepath", tint: .teal, count: store.tasks.filter(\.enabled).count)
                         .tag(DeckSection.tasks)
                         .help("Messaggi a Claude o Codex a orari fissi")

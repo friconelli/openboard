@@ -100,6 +100,8 @@ struct UndoAction: Identifiable {
     let message: String
     var restores: [Restore] = []
     var trashFirst: [URL] = []
+    /// Chats to take out of the archive (undoing an archive, no files involved).
+    var restoreArchive: [String] = []
 
     func perform() throws {
         let fm = FileManager.default

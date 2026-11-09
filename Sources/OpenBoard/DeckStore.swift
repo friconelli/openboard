@@ -117,6 +117,7 @@ final class DeckStore: ObservableObject {
             await MainActor.run {
                 self.chats = result
                 self.isIndexing = false
+                self.runAutoArchive()
                 self.indexProgress = 1
                 if self.reloadChatsQueued {
                     self.reloadChatsQueued = false
@@ -638,6 +639,10 @@ final class DeckStore: ObservableObject {
     func undo() {
         guard let action = pendingUndo else { return }
         pendingUndo = nil
+        if !action.restoreArchive.isEmpty {
+            unarchive(chats.filter { action.restoreArchive.contains($0.id) })
+            return
+        }
         do {
             try action.perform()
         } catch {
@@ -912,6 +917,60 @@ final class DeckStore: ObservableObject {
         liveChats.removeAll()
     }
 
+    // MARK: - Archive
+
+    func isArchived(_ chat: ChatSession) -> Bool { config.archivedChats?[chat.id] != nil }
+
+    /// Chats shown in lists: everything but the archive.
+    var visibleChats: [ChatSession] {
+        guard let archived = config.archivedChats, !archived.isEmpty else { return chats }
+        return chats.filter { archived[$0.id] == nil }
+    }
+
+    var archivedChats: [ChatSession] { chats.filter(isArchived) }
+
+    func archive(_ chats: [ChatSession], undoable: Bool = true) {
+        var map = config.archivedChats ?? [:]
+        let ids = chats.map(\.id).filter { map[$0] == nil }
+        guard !ids.isEmpty else { return }
+        for id in ids { map[id] = Date() }
+        config.archivedChats = map
+        config.save()
+        if undoable {
+            pendingUndo = UndoAction(message: ids.count == 1 ? "Chat archiviata" : "\(ids.count) chat archiviate",
+                                     restoreArchive: ids)
+        }
+        objectWillChange.send()
+    }
+
+    func unarchive(_ chats: [ChatSession]) {
+        var map = config.archivedChats ?? [:]
+        for chat in chats { map[chat.id] = nil }
+        config.archivedChats = map
+        config.save()
+        objectWillChange.send()
+    }
+
+    /// Chats the automatic cleanup would archive now: idle longer than the setting, not in
+    /// lavorazione, not open anywhere, not already archived.
+    func autoArchiveCandidates(days: Int? = nil) -> [ChatSession] {
+        guard let days = days ?? config.autoArchiveDays, days > 0 else { return [] }
+        let limit = Date().addingTimeInterval(-Double(days) * 86_400)
+        let active = activeSessionIDs.union(liveChats.filter { $0.value.isRunning }.map(\.key))
+        return chats.filter { $0.modifiedAt < limit && !isWorking($0) && !active.contains($0.id) && !isArchived($0) }
+    }
+
+    func setAutoArchive(days: Int?) {
+        config.autoArchiveDays = days
+        config.save()
+        runAutoArchive()
+    }
+
+    func runAutoArchive() {
+        let candidates = autoArchiveCandidates()
+        if !candidates.isEmpty { archive(candidates, undoable: false) }
+    }
+
     // MARK: - Smart sections
 
     func matches(_ chat: ChatSession, _ filter: SmartFilter) -> Bool {
@@ -925,6 +984,7 @@ final class DeckStore: ObservableObject {
         case .untitled: return !chat.isCustomTitle && chat.promptCount > 0
         case .codex: return chat.isCodex
         }
+        // (archived chats are filtered out by the caller through visibleChats)
     }
 
     func setSmartFilter(_ filter: SmartFilter, hidden: Bool) {

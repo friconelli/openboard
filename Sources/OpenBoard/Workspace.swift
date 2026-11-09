@@ -21,6 +21,10 @@ struct BoardConfig: Codable {
     /// Chats marked “in lavorazione”, most recently added first: the short list of what is being
     /// followed right now. Only the user adds or removes them.
     var workingChats: [String]?
+    /// Archived chats (id → when): hidden from every list but the archive, files untouched.
+    var archivedChats: [String: Date]?
+    /// Archive by itself chats idle for this many days (nil: never).
+    var autoArchiveDays: Int?
     /// Smart sections the user hid from the sidebar.
     var hiddenSmartFilters: [String]?
 

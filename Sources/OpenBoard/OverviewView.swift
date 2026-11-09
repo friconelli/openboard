@@ -21,7 +21,7 @@ struct OverviewView: View {
 
     /// Chats whose folder is gone: “Riprendi” can't open them until they are moved.
     private var homeless: [ChatSession] {
-        store.chats.filter { chat in
+        store.visibleChats.filter { chat in
             guard let cwd = chat.cwd else { return false }
             var isDirectory: ObjCBool = false
             return !FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory) || !isDirectory.boolValue
@@ -29,7 +29,7 @@ struct OverviewView: View {
     }
 
     private var heavy: [ChatSession] {
-        store.chats.filter { store.hasAdvice(for: $0) }
+        store.visibleChats.filter { store.hasAdvice(for: $0) }
             .sorted { store.contextTokens(for: $0) > store.contextTokens(for: $1) }
     }
 

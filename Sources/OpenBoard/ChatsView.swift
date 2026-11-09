@@ -20,15 +20,15 @@ struct ChatsView: View {
     @State private var slimTargets: [ChatSession] = []
 
     private var projects: [(dir: String, count: Int)] {
-        Dictionary(grouping: store.chats, by: \.projectDir)
+        Dictionary(grouping: store.visibleChats, by: \.projectDir)
             .map { ($0.key, $0.value.count) }
             .sorted { projectLabel($0.dir).localizedCaseInsensitiveCompare(projectLabel($1.dir)) == .orderedAscending }
     }
 
     private var filtered: [ChatSession] {
-        store.chats.filter { chat in
+        (scope == .archived ? store.archivedChats : store.visibleChats).filter { chat in
             switch scope {
-            case .all: break
+            case .all, .archived: break
             case .working: if !store.isWorking(chat) { return false }
             case .smart(let filter): if !store.matches(chat, filter) { return false }
             case .context(let context): if store.context(for: chat) != context { return false }
@@ -130,8 +130,33 @@ struct ChatsView: View {
 
     // MARK: - List
 
+    private var archiveBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "archivebox").foregroundStyle(.secondary)
+                Text("Archivia da sole le chat ferme da")
+                Picker("", selection: Binding(get: { store.config.autoArchiveDays ?? 0 },
+                                              set: { store.setAutoArchive(days: $0 == 0 ? nil : $0) })) {
+                    Text("mai").tag(0)
+                    Text("14 giorni").tag(14)
+                    Text("30 giorni").tag(30)
+                    Text("60 giorni").tag(60)
+                    Text("90 giorni").tag(90)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            Text("Non archivia mai le chat in lavorazione o aperte. Le chat archiviate restano su disco e in /resume: tasto destro → Ripristina.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .font(.callout)
+        .padding(12)
+    }
+
     private var listPane: some View {
         VStack(spacing: 0) {
+            if scope == .archived { archiveBanner; Divider() }
             filterBar
             Divider()
             if filtered.isEmpty && !store.isIndexing {
@@ -277,6 +302,11 @@ struct ChatsView: View {
             Button("Sposta in…") { moveTargets = targets }
         }
         Menu("Contesto") { contextItems(for: targets) }
+        if targets.allSatisfy(store.isArchived) {
+            Button("Ripristina dall'archivio") { store.unarchive(targets) }
+        } else {
+            Button("Archivia") { store.archive(targets); selection.subtract(targets.map(\.id)) }
+        }
         Divider()
         Button("Sposta nel Cestino", role: .destructive) { trashTargets = targets }
     }
@@ -293,6 +323,7 @@ struct ChatsView: View {
     private var scopeTitle: String {
         switch scope {
         case .all: return "Tutte le chat"
+        case .archived: return "Archivio"
         case .working: return "In lavorazione"
         case .smart(let filter): return filter.title
         case .context(let context): return context

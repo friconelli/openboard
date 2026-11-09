@@ -104,7 +104,7 @@ struct CommandPalette: View {
             return words.allSatisfy { lower.contains($0) }
         }
         let pages = sections.filter { words.isEmpty || matches($0.title) }
-        let chats = store.chats
+        let chats = store.visibleChats
             .filter { chat in
                 words.isEmpty || matches("\(chat.displayTitle) \(chat.projectName) \(store.description(for: chat) ?? "") \(chat.id)")
             }
