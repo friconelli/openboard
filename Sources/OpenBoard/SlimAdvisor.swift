@@ -15,8 +15,9 @@ struct SlimEntry: Codable, Sendable {
     /// was slimmed since, otherwise estimated from the text.
     let context: Int
 
-    /// Worth suggesting: at least `minTokens`, and 5% of the context.
-    var isWorthIt: Bool { tokens >= SlimAdvisor.minTokens && tokens * 20 >= context }
+    /// Worth suggesting: a real cut in what Claude rereads at every message, 20k tokens or a
+    /// fifth of the context (at least 10k). Below that slimming is not worth a thought.
+    var isWorthIt: Bool { tokens >= 20_000 || (tokens >= SlimAdvisor.minTokens && tokens * 5 >= context) }
 
     func matches(_ chat: ChatSession) -> Bool {
         size == chat.sizeBytes && abs(modified.timeIntervalSince(chat.modifiedAt)) < 1
@@ -25,12 +26,12 @@ struct SlimEntry: Codable, Sendable {
 
 enum SlimAdvisor {
     /// Below this a slimming is not suggested.
-    static let minTokens = 5_000
+    static let minTokens = 10_000
     /// Below this the slim sheet says the chat is already slim.
     static let sheetMinTokens = 1_000
     static let sheetMinBytes = 1_000_000
 
-    private static let url = ClaudePaths.appSupport.appendingPathComponent("slim-cache-v1.json")
+    private static let url = ClaudePaths.appSupport.appendingPathComponent("slim-cache-v2.json")
 
     static func load() -> [String: SlimEntry] {
         guard let data = try? Data(contentsOf: url),

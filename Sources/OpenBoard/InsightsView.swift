@@ -118,7 +118,7 @@ struct InsightsView: View {
         let total = max(1, tiers.values.reduce(0, +))
         let top = tiers.max { $0.value < $1.value }
 
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 12)], spacing: 12) {
             statCard("Consumo ultimi 30 giorni", value: "\(String(format: "%.1f", recent / 1_000_000)) M", note: "token equivalenti", symbol: "chart.bar.fill", tint: Theme.coral)
             statCard("Contesto riletto", value: "\(Int(cacheShare * 100))%", note: "del consumo totale", symbol: "arrow.triangle.2.circlepath", tint: .orange)
             statCard("Chat pesanti", value: "\(heavy)", note: "oltre 100k token, ultimi 30 giorni", symbol: "scalemass.fill", tint: .red)

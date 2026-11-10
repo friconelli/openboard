@@ -221,6 +221,8 @@ struct Card<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Full-bleed content (the account bands) follows the card's corners.
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .background(
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                     .fill(Theme.cardBackground)
@@ -525,6 +527,7 @@ struct PlaceholderTextEditor: View {
             }
             TextEditor(text: $text)
                 .scrollContentBackground(.hidden)
+                .scrollIndicators(.never)
                 .padding(padding)
         }
         .font(.body)

@@ -74,6 +74,7 @@ enum DeckSection: Hashable {
     case insights
     case compose
     case tasks
+    case skills
 
     /// For launching on a given page (`-debugSection insights`), used for screenshots.
     init?(debugName: String) {
@@ -88,6 +89,7 @@ enum DeckSection: Hashable {
         case "chats": self = .chats(.all)
         case "working": self = .chats(.working)
         case "tasks": self = .tasks
+        case "skills": self = .skills
         case "archive": self = .chats(.archived)
         default: return nil
         }
@@ -105,6 +107,7 @@ struct ContentView: View {
     @State private var showRemote = false
     @ObservedObject private var remote = RemoteServer.shared
     @StateObject private var chatsUI = ChatsUI()
+    @State private var newChatRequest = NewChatRequest()
     /// Which chats the list on the left shows.
     @State private var listScope: ChatScope = .all
     @AppStorage(Theme.appearanceKey) private var appearance: Theme.Appearance = .system
@@ -150,14 +153,18 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showPalette)) { _ in showPalette = true }
-        .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in showNewChat = true }
+        .onReceive(NotificationCenter.default.publisher(for: .newChat)) { note in
+            newChatRequest = note.object as? NewChatRequest ?? NewChatRequest()
+            showNewChat = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showRemote)) { _ in showRemote = true }
+        .modifier(MilestonesHost(store: store))
         .sheet(isPresented: $showRemote) { RemoteAccessSheet() }
         .onReceive(NotificationCenter.default.publisher(for: .focusChat)) { note in
             if let id = note.object as? String { section = .chats(.all); focusedChatID = id }
         }
         .sheet(isPresented: $showNewChat) {
-            NewChatSheet(store: store) { id in
+            NewChatSheet(store: store, initialFolder: newChatRequest.folder, initialTeam: newChatRequest.team) { id in
                 section = .chats(.all)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focusedChatID = id }
             }
@@ -207,6 +214,18 @@ struct ContentView: View {
             if defaults.bool(forKey: "debugPalette") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showPalette = true }
             }
+            // Tests: `-debugTeam "obiettivo" -debugTeamFolder <cartella> [-debugModel haiku]` starts an orchestrator.
+            if let goal = defaults.string(forKey: "debugTeam"), let folder = defaults.string(forKey: "debugTeamFolder") {
+                if let milestone = defaults.string(forKey: "debugMilestone") {
+                    store.setMilestones([Milestone(text: milestone)], for: folder)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    let chat = store.startOrchestrator(in: folder, account: store.preferredAccount, model: defaults.string(forKey: "debugModel"),
+                                                       mode: .acceptEdits, parallel: 2, message: goal)
+                    chatsUI.focusedProject = folder
+                    focusedChatID = chat.id
+                }
+            }
             if let id = defaults.string(forKey: "debugChat") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { focusedChatID = id }
             }
@@ -241,12 +260,13 @@ struct ContentView: View {
         VStack(spacing: 0) {
             scopeMenu
                 .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
+                .padding(.top, 8)
             ChatsView(store: store, scope: listScope, focusedChatID: $focusedChatID, ui: chatsUI, mode: .list)
         }
         .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
-            .safeAreaInset(edge: .bottom) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // A stack: several loose views in an inset are drawn on top of each other.
+                VStack(spacing: 0) {
                 PlanUsagePanel(store: store)
                 if updater.updateAvailable, let latest = updater.latest {
                     VStack(alignment: .leading, spacing: 6) {
@@ -288,6 +308,8 @@ struct ContentView: View {
                     }
                     .padding(12)
                 }
+                }
+                .background(Theme.sidebarBackground ?? Color(nsColor: .windowBackgroundColor))
             }
             .background(Theme.sidebarBackground ?? .clear)
     }
@@ -376,6 +398,7 @@ struct ContentView: View {
             railButton("Attività programmate", "clock.arrow.circlepath", isOn: section == .tasks) { section = .tasks }
             railButton("Aree di lavoro", "folder", isOn: section == .areas) { section = .areas }
             railButton("Memoria", "brain.head.profile", isOn: section == .memory) { section = .memory }
+            railButton("Skill", "wand.and.stars", isOn: section == .skills) { section = .skills }
             Spacer()
             railButton(remote.status == .running ? "iPhone collegabile: mostra il link (⌘L)" : "Link per iPhone (⌘L)", "iphone",
                        isOn: remote.status == .running) { showRemote = true }
@@ -383,7 +406,7 @@ struct ContentView: View {
             railButton("Account", "person.2", isOn: section == .accounts) { section = .accounts }
         }
         .padding(.vertical, 10)
-        .frame(width: 52)
+        .frame(width: 60)
         .background(Theme.sidebarBackground ?? Color(nsColor: .windowBackgroundColor))
     }
 
@@ -402,7 +425,7 @@ struct ContentView: View {
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Theme.accent, in: Capsule())
-                            .offset(x: 4, y: -2)
+                            .offset(x: 3, y: -3)
                     }
                 }
                 .contentShape(Rectangle())
@@ -439,6 +462,8 @@ struct ContentView: View {
                 }
             case .tasks:
                 TasksView(store: store)
+            case .skills:
+                SkillsView(store: store)
             case .compose:
                 ComposeView(store: store) { id in
                     focusedChatID = id

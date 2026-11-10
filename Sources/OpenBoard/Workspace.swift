@@ -27,6 +27,12 @@ struct BoardConfig: Codable {
     var autoArchiveDays: Int?
     /// Smart sections the user hid from the sidebar.
     var hiddenSmartFilters: [String]?
+    /// Chats pinned at the top of the sidebar, most recently pinned first.
+    var pinnedChats: [String]?
+    /// Orchestrator chats (by id) and the agents they started.
+    var teams: [String: AgentTeam]?
+    /// Project folder → the goals every chat started there carries.
+    var milestones: [String: [Milestone]]?
 
     private static var url: URL { ClaudePaths.appSupport.appendingPathComponent("config.json") }
 

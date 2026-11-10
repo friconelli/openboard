@@ -22,6 +22,13 @@ enum Launcher {
         warpBundleIDs.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
     }
 
+    /// Instructions for every Claude started in a folder (the project's milestones).
+    nonisolated(unsafe) static var systemPromptForFolder: ((String) -> String?)?
+
+    private static func promptFlag(_ directory: String) -> String {
+        systemPromptForFolder?(directory).map { " --append-system-prompt " + shellQuote($0) } ?? ""
+    }
+
     static var terminalName: String { warpURL != nil ? "Warp" : "Terminale" }
 
     @discardableResult
@@ -30,13 +37,13 @@ enum Launcher {
             let command = "codex resume \(session.id)\(model.map { " -m \($0)" } ?? "")"
             return run(command + (prompt.map { " " + shellQuote($0) } ?? ""), in: session.workingDirectory)
         }
-        let command = "\(account.commandPrefix)\(model.map { " --model \($0)" } ?? "") --resume \(session.id)"
+        let command = "\(account.commandPrefix)\(model.map { " --model \($0)" } ?? "")\(promptFlag(session.workingDirectory)) --resume \(session.id)"
         return run(command + (prompt.map { " " + shellQuote($0) } ?? ""), in: session.workingDirectory)
     }
 
     @discardableResult
     static func newChat(in directory: String, account: ClaudeAccount, model: String? = nil, prompt: String? = nil) -> Outcome {
-        run(account.commandPrefix + (model.map { " --model \($0)" } ?? "") + (prompt.map { " " + shellQuote($0) } ?? ""), in: directory)
+        run(account.commandPrefix + (model.map { " --model \($0)" } ?? "") + promptFlag(directory) + (prompt.map { " " + shellQuote($0) } ?? ""), in: directory)
     }
 
     /// Single-quoted for zsh.

@@ -43,7 +43,12 @@ struct TranscriptView: View {
         .sheet(isPresented: $showGit) { GitSheet(store: store, folder: chat.workingDirectory) }
         .onAppear {
             Notifier.shared.visibleChatID = chat.id
+            store.unseenChats.remove(chat.id)
             if UserDefaults.standard.bool(forKey: "debugTerminal") { showTerminal = true }
+            if UserDefaults.standard.string(forKey: "debugChat") == chat.id {
+                if UserDefaults.standard.bool(forKey: "debugOpenFiles") { showFiles = true }
+                if UserDefaults.standard.bool(forKey: "debugOpenGit") { showGit = true }
+            }
             if UserDefaults.standard.string(forKey: "debugChat") == chat.id, let prompt = UserDefaults.standard.string(forKey: "debugFork") {
                 Task {
                     if let id = await store.fork(chat, prompt: prompt, occurrence: 0, includingIt: false, title: "\(chat.displayTitle) · da capo", draft: prompt) {
@@ -118,6 +123,9 @@ struct TranscriptView: View {
                         DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }
+            }
+            if store.team(for: chat.id) != nil || store.worker(chatID: chat.id) != nil {
+                TeamBar(store: store, chatID: chat.id)
             }
             if let live {
                 ChatComposer(store: store, live: live, blockedReason: blockedReason)
@@ -217,8 +225,6 @@ struct TranscriptView: View {
                 } else {
                     ToolButton(title: "Dividi", symbol: "scissors") { actions.split(chat) }
                         .help("Dividi in più chat, una per argomento")
-                    ToolButton(title: "Snellisci", symbol: "arrow.down.right.and.arrow.up.left") { actions.slim([chat]) }
-                        .help("Togli dati tecnici, immagini e output temporanei")
                     ToolButton(title: "Sposta", symbol: "folder.badge.gearshape") { actions.move([chat]) }
                         .help("Sposta in un'area di lavoro o in un progetto")
                 }
@@ -236,6 +242,9 @@ struct TranscriptView: View {
                         }
                         Divider()
                         Button("Automatico (dalla cartella)") { store.setContext(nil, for: [chat]) }
+                    }
+                    if !chat.isCodex {
+                        Button("Snellisci…") { actions.slim([chat]) }
                     }
                     Button("Esporta in Markdown…") { MarkdownExport.save(chat) }
                     Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
@@ -280,7 +289,7 @@ private struct MessageView: View {
                 Image(systemName: "sparkle")
                     .foregroundStyle(Theme.coral)
                     .padding(.top, 2)
-                MarkdownView(text: message.text)
+                MarkdownView(text: AgentTeams.displayText(message.text))
                 Spacer(minLength: 40)
             }
         case .command:

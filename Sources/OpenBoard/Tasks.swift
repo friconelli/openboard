@@ -223,6 +223,9 @@ struct TasksView: View {
             }
             .padding(24)
         }
+        .onAppear {
+            if UserDefaults.standard.bool(forKey: "debugTaskEditor") { editing = ScheduledTask(folder: store.config.projectsRoot) }
+        }
         .sheet(item: $editing) { task in
             TaskEditor(store: store, task: task) { saved in store.saveTask(saved) }
         }
@@ -293,11 +296,15 @@ struct TaskEditor: View {
     let onSave: (ScheduledTask) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    private var formRows: Int {
+        (task.provider == .claude ? 7 : 6) + (task.repeatRule == .weekly ? 1 : 0)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(task.title.isEmpty ? "Nuova attività" : task.title).font(.title2.bold())
             Form {
-                TextField("Titolo", text: $task.title)
+                TextField("Titolo", text: $task.title, prompt: Text("Es. Controllo mattutino dei siti"))
                 Picker("Agente", selection: $task.provider) {
                     ForEach(Provider.allCases.filter { $0 == .claude || Codex.isInstalled }) { Text($0.title).tag($0) }
                 }
@@ -346,8 +353,14 @@ struct TaskEditor: View {
                 }
             }
             .formStyle(.grouped)
+            // A grouped form insets itself by 20 pt: taken back so it lines up with the title
+            // and the box below. Sized to its rows, so it never scrolls.
+            .scrollDisabled(true)
+            .scrollContentBackground(.hidden)   // the taken-back margin must not cover the title
+            .frame(height: 40 + 37.4 * CGFloat(formRows))
+            .padding(-20)
             PlaceholderTextEditor(placeholder: "Cosa deve fare, ogni volta", text: $task.prompt)
-                .frame(minHeight: 110)
+                .frame(minHeight: 90)
                 .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.hairline))
             Text("Nessuno risponde alle domande durante un'attività: i permessi scelti qui valgono per tutta l'esecuzione.")
@@ -361,6 +374,6 @@ struct TaskEditor: View {
             }
         }
         .padding(22)
-        .frame(width: 620, height: 720)
+        .frame(width: 620, height: 680)
     }
 }

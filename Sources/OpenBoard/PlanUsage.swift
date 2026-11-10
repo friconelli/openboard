@@ -158,8 +158,7 @@ struct PlanUsagePanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.cardBackground.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.hairline))
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+                .padding(12)
             }
             .contextMenu { Button("Aggiorna consumo") { store.refreshPlanUsage(force: true) } }
             .help("Consumo del piano Claude letto da /usage, aggiornato ogni 5 minuti. Clic destro per aggiornare ora.")

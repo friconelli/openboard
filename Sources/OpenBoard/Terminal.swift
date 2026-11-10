@@ -62,10 +62,10 @@ struct TerminalPanel: NSViewRepresentable {
         terminal.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(terminal)
         NSLayoutConstraint.activate([
-            terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
-            terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
-            terminal.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+            terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            terminal.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
         DispatchQueue.main.async { terminal.window?.makeFirstResponder(terminal) }
     }

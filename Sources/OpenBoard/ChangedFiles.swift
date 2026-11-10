@@ -117,7 +117,7 @@ struct DiffText: View {
                         .font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(color(for: line))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 12)
                         .background(background(for: line))
                 }
             }
@@ -192,7 +192,8 @@ struct ChangedFilesSheet: View {
                             Text(fromGit ? "Differenze rispetto all'ultimo commit" : "Modifiche fatte da Claude (la cartella non è in git)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .padding(8)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
                             DiffText(text: diff.isEmpty ? "Nessuna differenza: le modifiche sono già nel commit." : diff)
                         }
                     }

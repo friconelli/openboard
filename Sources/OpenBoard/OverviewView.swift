@@ -48,7 +48,7 @@ struct OverviewView: View {
                 section("Ti aspetta", symbol: "hand.raised.fill", tint: .green,
                         hint: "Sessioni aperte ferme in attesa di una tua risposta",
                         items: waiting.map { session in
-                            row(id: session.sessionId, title: title(of: session), detail: "in attesa da \(relative(session.updatedAt ?? session.startedAt))",
+                            row(id: session.sessionId, title: title(of: session), detail: "in attesa · \(relative(session.updatedAt ?? session.startedAt))",
                                 account: session.accountID, chat: store.chat(id: session.sessionId))
                         })
 

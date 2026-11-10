@@ -6,6 +6,7 @@ import AppKit
 struct NewChatSheet: View {
     @ObservedObject var store: DeckStore
     var initialFolder: String?
+    var initialTeam = false
     let onStarted: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +19,9 @@ struct NewChatSheet: View {
     @State private var inTerminal = false
     @State private var provider: Provider = .claude
     @State private var sandbox: LiveChat.CodexSandbox = .workspaceWrite
+    /// Orchestrator: splits the work and hands it to agents that report back and close.
+    @State private var team = false
+    @State private var parallel = AgentTeams.defaultParallel
     @FocusState private var messageFocused: Bool
 
     private struct Preset: Identifiable {
@@ -66,6 +70,14 @@ struct NewChatSheet: View {
                 Text("Su cosa lavoriamo\(folder == nil ? "?" : " in \(folderName)?")")
                     .font(.title2.bold())
                 Spacer()
+                if provider == .claude && !inTerminal {
+                    Toggle(isOn: $team) {
+                        Label("Orchestratore con agenti", systemImage: "person.3")
+                    }
+                    .toggleStyle(.button)
+                    .help("Claude divide il lavoro in piccoli compiti e li affida ad agenti: ognuno, finito il suo, manda il resoconto all'orchestratore e si chiude")
+                    .onChange(of: team) { _, on in if on && mode == .manual { mode = .acceptEdits } }
+                }
                 if Codex.isInstalled {
                     Picker("", selection: $provider) {
                         ForEach(Provider.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
@@ -110,6 +122,7 @@ struct NewChatSheet: View {
         .frame(width: 860, height: 520)
         .onAppear {
             folder = initialFolder ?? store.recentFolders.first?.path
+            if initialTeam { team = true; mode = .acceptEdits }
             accountID = store.preferredAccount?.id
             messageFocused = true
         }
@@ -174,7 +187,9 @@ struct NewChatSheet: View {
     }
 
     private var messageEditor: some View {
-        PlaceholderTextEditor(placeholder: inTerminal ? "Primo messaggio (facoltativo)" : "Cosa deve fare Claude?", text: $message)
+        PlaceholderTextEditor(placeholder: inTerminal ? "Primo messaggio (facoltativo)"
+                              : team ? "Obiettivo per l'orchestratore: lo dividerà in compiti per gli agenti" : "Cosa deve fare Claude?",
+                              text: $message)
             .focused($messageFocused)
         .frame(minHeight: 200)
         .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -230,7 +245,13 @@ struct NewChatSheet: View {
                 }
                 .labelsHidden()
                 .fixedSize()
-                .help(mode.detail)
+                .help(team ? mode.detail + " (vale anche per gli agenti)" : mode.detail)
+            }
+            if team && !inTerminal {
+                Image(systemName: "person.3").foregroundStyle(.secondary).padding(.leading, 6)
+                Stepper("\(parallel) alla volta", value: $parallel, in: 1...8)
+                    .fixedSize()
+                    .help("Quanti agenti possono lavorare insieme; gli altri aspettano")
             }
             }
             Spacer(minLength: 0)
@@ -257,8 +278,10 @@ struct NewChatSheet: View {
             dismiss()
             return
         }
-        let chat = store.startLiveChat(in: folder, provider: provider, account: account, model: provider == .codex ? nil : model,
-                                       mode: mode, sandbox: sandbox, message: text)
+        let chat = team && provider == .claude
+            ? store.startOrchestrator(in: folder, account: account, model: model, mode: mode, parallel: parallel, message: text)
+            : store.startLiveChat(in: folder, provider: provider, account: account, model: provider == .codex ? nil : model,
+                                  mode: mode, sandbox: sandbox, message: text)
         onStarted(chat.id)
         dismiss()
     }

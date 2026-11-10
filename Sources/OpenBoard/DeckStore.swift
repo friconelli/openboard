@@ -17,6 +17,10 @@ final class DeckStore: ObservableObject {
     @Published var pendingUndo: UndoAction?
     /// Chats being talked to from inside the app, kept alive while you look at other chats.
     @Published private(set) var liveChats: [String: LiveChat] = [:]
+    /// Bumped when a live chat starts or ends a turn or waits for a permission: the sidebar redraws.
+    @Published private(set) var liveTick = 0
+    /// Chats that finished a turn you haven't looked at yet.
+    @Published var unseenChats: Set<String> = []
     /// Plan usage (5-hour session and week) per account id.
     @Published var planUsage: [String: PlanUsage.Snapshot] = [:]
     @Published var tasks: [ScheduledTask] = TaskScheduler.load()
@@ -72,7 +76,11 @@ final class DeckStore: ObservableObject {
     var activeSessionIDs: Set<String> { Set(activeSessions.map(\.sessionId)) }
 
     func start() {
+        Launcher.systemPromptForFolder = { [weak self] folder in
+            MainActor.assumeIsolated { self?.milestonesPrompt(for: folder) }
+        }
         reloadAll()
+        recoverTeams()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshActiveSessions() }
         }
@@ -828,16 +836,27 @@ final class DeckStore: ObservableObject {
             NotificationCenter.default.post(name: .focusChat, object: live.chatID)
         }
         live.account = accounts(for: chat).last ?? preferredAccount
+        live.systemPromptProvider = { [weak self, weak live] in
+            guard let self, let live else { return nil }
+            return self.systemPrompt(for: live.chatID, folder: live.directory)
+        }
+        live.onStateChange = { [weak self] in self?.liveTick &+= 1 }
         let title = chat.displayTitle
         live.onTurnFinished = { [weak self, weak live] in
             self?.reloadChats()
             self?.refreshPlanUsage(force: live?.provider == .codex)
-            let last = live?.items.reversed().compactMap { item -> String? in
+            guard let self, let live else { return }
+            let isAgent = self.worker(chatID: live.chatID) != nil
+            self.teamTurnFinished(live)
+            // Agents report to their orchestrator and close: no notification, nothing unread.
+            if isAgent { return }
+            if Notifier.shared.visibleChatID != live.chatID { self.unseenChats.insert(live.chatID) }
+            let last = live.items.reversed().compactMap { item -> String? in
                 if case .text(_, let text) = item { return text }
                 if case .notice(_, let text, _) = item { return text }
                 return nil
             }.first
-            Notifier.shared.post(chatID: live?.chatID ?? chat.id, title: "\(title): \(live?.provider.title ?? "Claude") ha finito",
+            Notifier.shared.post(chatID: live.chatID, title: "\(title): \(live.provider.title) ha finito",
                                  body: String((last ?? "Risposta pronta").replacingOccurrences(of: "\n", with: " ").prefix(180)))
         }
         live.betterAccount = { [weak self] current in self?.accountWithRoom(instead: current) }
@@ -869,8 +888,7 @@ final class DeckStore: ObservableObject {
     /// creates the transcript with the id chosen here.
     func startLiveChat(in folder: String, provider: Provider = .claude, account: ClaudeAccount?, model: String?,
                        mode: LiveChat.PermissionMode, sandbox: LiveChat.CodexSandbox = .workspaceWrite,
-                       message: String) -> ChatSession {
-        let id = UUID().uuidString.lowercased()
+                       message: String, id: String = UUID().uuidString.lowercased()) -> ChatSession {
         let projectDir = provider == .codex ? "codex" : Workspaces.encodedName(for: folder)
         // Codex chooses where its file goes; until the first turn starts the entry is a placeholder.
         let file = provider == .codex ? Codex.sessions.appendingPathComponent("pending-\(id).jsonl")

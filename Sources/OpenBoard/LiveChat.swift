@@ -79,8 +79,24 @@ final class LiveChat: ObservableObject {
     var isNew = false
 
     @Published private(set) var items: [Item] = []
-    @Published private(set) var isRunning = false
-    @Published private(set) var pendingPermission: Permission?
+    @Published private(set) var isRunning = false {
+        didSet {
+            guard isRunning != oldValue else { return }
+            turnStartedAt = isRunning ? Date() : nil
+            onStateChange?()
+        }
+    }
+    @Published private(set) var pendingPermission: Permission? {
+        didSet { if (pendingPermission == nil) != (oldValue == nil) { onStateChange?() } }
+    }
+    /// When the running turn started, for the elapsed time in the sidebar.
+    private(set) var turnStartedAt: Date?
+    /// Extra instructions given to Claude at start (`--append-system-prompt`): the project's
+    /// milestones, the orchestrator's or agent's role. Read when Claude starts; when they change,
+    /// the next message starts Claude again with the new ones.
+    var systemPromptProvider: (() -> String?)?
+    /// Called when the chat starts or ends a turn, or starts or stops waiting for a permission.
+    var onStateChange: (() -> Void)?
     /// Context Claude rereads on the next turn, from the latest answer's usage.
     @Published private(set) var contextTokens = 0
     @Published var account: ClaudeAccount?
@@ -107,7 +123,7 @@ final class LiveChat: ObservableObject {
     private var process: Process?
     private var input: FileHandle?
     private var buffer = Data()
-    private var startedWith: (account: String?, model: String?, mode: PermissionMode)?
+    private var startedWith: (account: String?, model: String?, mode: PermissionMode, prompt: String?)?
     /// Index in `items` of the text block being streamed, by content-block index.
     private var streaming: [Int: Int] = [:]
 
@@ -131,6 +147,21 @@ final class LiveChat: ObservableObject {
     private(set) var lastSent: Queued?
 
     func removeFromQueue(_ id: UUID) { queue.removeAll { $0.id == id } }
+
+    /// What Claude wrote in the turn just finished (or running): its text after the last prompt.
+    var lastTurnText: String {
+        let start = (items.lastIndex { if case .user = $0 { return true } else { return false } }).map { $0 + 1 } ?? 0
+        return items[start...].compactMap { item -> String? in
+            if case .text(_, let text) = item { return text }
+            return nil
+        }.joined(separator: "\n\n")
+    }
+
+    /// The error that ended the last turn, if it ended with one.
+    var lastTurnError: String? {
+        if case .notice(_, let text, true) = items.last { return text }
+        return nil
+    }
 
     func send(_ text: String, attachments: [URL] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -241,9 +272,11 @@ final class LiveChat: ObservableObject {
     // MARK: - Process
 
     private func ensureProcess() throws {
-        let wanted = (account: account?.id, model: model, mode: mode)
+        let prompt = systemPromptProvider?()
+        let wanted = (account: account?.id, model: model, mode: mode, prompt: prompt)
         if process?.isRunning == true, let started = startedWith,
-           started.account == wanted.account, started.model == wanted.model, started.mode == wanted.mode {
+           started.account == wanted.account, started.model == wanted.model, started.mode == wanted.mode,
+           started.prompt == wanted.prompt {
             return
         }
         terminate()
@@ -263,6 +296,7 @@ final class LiveChat: ObservableObject {
             "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
         ]
         if let model { arguments += ["--model", model] }
+        if let prompt { arguments += ["--append-system-prompt", prompt] }
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         var environment = ProcessInfo.processInfo.environment

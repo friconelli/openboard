@@ -137,7 +137,8 @@ func formatBytes(_ bytes: Int64) -> String {
 
 func relative(_ date: Date?) -> String {
     guard let date else { return "—" }
-    return relativeFormatter.localizedString(for: date, relativeTo: Date())
+    // A timestamp a moment ahead of this clock must not read "tra 0 sec.".
+    return relativeFormatter.localizedString(for: min(date, Date()), relativeTo: Date())
 }
 
 enum ClaudePaths {

@@ -328,8 +328,14 @@ struct FolderPickerSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            TextField("Cerca area o progetto", text: $query)
-                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Cerca area o progetto", text: $query)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             List(selection: $selection) {
                 ForEach(store.config.contexts, id: \.self) { context in

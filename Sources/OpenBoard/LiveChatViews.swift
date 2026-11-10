@@ -39,7 +39,7 @@ struct LiveItemsView: View {
                     Image(systemName: "sparkle")
                         .foregroundStyle(Theme.coral)
                         .padding(.top, 2)
-                    MarkdownView(text: text)
+                    MarkdownView(text: AgentTeams.displayText(text))
                     Spacer(minLength: 40)
                 }
             case .thinking:

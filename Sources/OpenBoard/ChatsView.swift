@@ -7,7 +7,22 @@ final class ChatsUI: ObservableObject {
     @Published var selection: Set<String> = []
     @Published var query = ""
     @Published var searchContent = false
-    @Published var projectFilter: String?
+    /// The one project shown when working on it alone (its folder), kept across launches.
+    @Published var focusedProject: String? = UserDefaults.standard.string(forKey: "sidebarFocusedProject") {
+        didSet { UserDefaults.standard.set(focusedProject, forKey: "sidebarFocusedProject") }
+    }
+    @Published var collapsedProjects: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "sidebarCollapsedProjects") ?? []) {
+        didSet { UserDefaults.standard.set(Array(collapsedProjects), forKey: "sidebarCollapsedProjects") }
+    }
+    /// Orchestrators opened or closed by hand (otherwise they open while their agents work).
+    @Published var expanded: Set<String> = []
+    @Published var collapsedTeams: Set<String> = []
+    /// Rows shown per project after “Mostra altre”.
+    @Published var shown: [String: Int] = [:]
+
+    func toggleProject(_ path: String) {
+        if collapsedProjects.contains(path) { collapsedProjects.remove(path) } else { collapsedProjects.insert(path); shown[path] = nil }
+    }
     @Published var accountFilter: String?
     @Published var renameTarget: ChatSession?
     @Published var mergeTargets: [ChatSession] = []
@@ -28,13 +43,15 @@ struct ChatsView: View {
 
 
 
-    private var projects: [(dir: String, count: Int)] {
-        Dictionary(grouping: store.visibleChats, by: \.projectDir)
-            .map { ($0.key, $0.value.count) }
-            .sorted { projectLabel($0.dir).localizedCaseInsensitiveCompare(projectLabel($1.dir)) == .orderedAscending }
+    /// Folders with chats, for the project menu: most recent first.
+    private var projects: [(path: String, count: Int)] {
+        Dictionary(grouping: store.visibleChats, by: \.workingDirectory)
+            .map { (path: $0.key, count: $0.value.count, last: $0.value.map(\.modifiedAt).max() ?? .distantPast) }
+            .sorted { $0.last > $1.last }
+            .map { ($0.path, $0.count) }
     }
 
-    private var filtered: [ChatSession] {
+    var filtered: [ChatSession] {
         (scope == .archived ? store.archivedChats : store.visibleChats).filter { chat in
             switch scope {
             case .all, .archived: break
@@ -43,7 +60,6 @@ struct ChatsView: View {
             case .context(let context): if store.context(for: chat) != context { return false }
             case .unassigned: if store.context(for: chat) != nil { return false }
             }
-            if let projectFilter = ui.projectFilter, chat.projectDir != projectFilter { return false }
             if let accountFilter = ui.accountFilter, !(store.sessionAccounts[chat.id]?.contains(accountFilter) ?? false) { return false }
             guard !ui.query.isEmpty else { return true }
             if ui.searchContent { return store.contentMatches?.contains(chat.id) ?? true }
@@ -86,7 +102,11 @@ struct ChatsView: View {
             if UserDefaults.standard.bool(forKey: "debugOpenMove"), let chat = store.chats.first(where: { $0.id == id }) {
                 ui.moveTargets = [chat]
             }
-            ui.projectFilter = nil
+            // A chat outside the project in focus brings back every project.
+            if let focus = ui.focusedProject, let chat = store.chats.first(where: { $0.id == id }),
+               chat.workingDirectory != focus, store.workerParents[id].flatMap({ parent in store.chats.first { $0.id == parent } })?.workingDirectory != focus {
+                ui.focusedProject = nil
+            }
             ui.accountFilter = nil
             ui.query = ""
             focusedChatID = nil
@@ -180,25 +200,7 @@ struct ChatsView: View {
                     message: ui.query.isEmpty ? nil : "Prova a cercare anche nel contenuto delle conversazioni."
                 )
             } else {
-                List(selection: $ui.selection) {
-                    ForEach(filtered) { chat in
-                        ChatRow(
-                            chat: chat,
-                            accounts: store.accounts(for: chat),
-                            context: store.context(for: chat),
-                            showContext: scope == .all,
-                            isActive: store.activeSessionIDs.contains(chat.id),
-                            hasAdvice: store.hasAdvice(for: chat),
-                            description: store.description(for: chat),
-                            isWorking: store.isWorking(chat),
-                            contextTokens: store.contextTokens(for: chat)
-                        )
-                        .tag(chat.id)
-                        .contextMenu { contextMenu(for: chat) }
-                    }
-                }
-                .listStyle(.inset)
-                .scrollContentBackground(Theme.isWarm ? .hidden : .automatic)
+                sidebarList
             }
         }
     }
@@ -223,25 +225,29 @@ struct ChatsView: View {
             .padding(.vertical, 7)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Toggle(isOn: $ui.searchContent) {
-                    Label("Nel contenuto", systemImage: "text.magnifyingglass")
+                    Image(systemName: "text.magnifyingglass")
                 }
                 .toggleStyle(.button)
                 .controlSize(.small)
+                .help("Cerca anche nel contenuto delle conversazioni")
 
+                // Short labels: this row must fit the narrowest column, or it widens the
+                // whole column and eats the margins.
                 Menu {
-                    Button("Tutti i progetti") { ui.projectFilter = nil }
+                    Button("Tutti i progetti") { ui.focusedProject = nil }
                     Divider()
-                    ForEach(projects, id: \.dir) { project in
-                        Button("\(projectLabel(project.dir)) (\(project.count))") { ui.projectFilter = project.dir }
+                    ForEach(projects.prefix(40), id: \.path) { project in
+                        Button("\(URL(fileURLWithPath: project.path).lastPathComponent) (\(project.count))") { ui.focusedProject = project.path }
                     }
                 } label: {
-                    Label(ui.projectFilter.map(projectLabel) ?? "Tutti i progetti", systemImage: "folder")
+                    Label(ui.focusedProject.map { short(URL(fileURLWithPath: $0).lastPathComponent) } ?? "Progetti", systemImage: "folder")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
                 .fixedSize()
+                .help("Lavora su un solo progetto: la lista mostra solo quello, con i suoi agenti")
 
                 Menu {
                     Button("Tutti gli account") { ui.accountFilter = nil }
@@ -250,19 +256,25 @@ struct ChatsView: View {
                         Button(account.name) { ui.accountFilter = account.id }
                     }
                 } label: {
-                    Label(ui.accountFilter.flatMap { store.account(id: $0)?.name } ?? "Tutti gli account", systemImage: "person.crop.circle")
+                    Label(ui.accountFilter.flatMap { store.account(id: $0)?.name }.map(short) ?? "Account", systemImage: "person.crop.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .controlSize(.small)
                 .fixedSize()
+                .help("Filtra per account")
 
-                Spacer()
+                Spacer(minLength: 0)
                 Text("\(filtered.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
         }
         .padding(12)
+    }
+
+    private func short(_ name: String) -> String {
+        name.count > 12 ? name.prefix(11) + "…" : name
     }
 
     private var actions: ChatActions {
@@ -277,7 +289,7 @@ struct ChatsView: View {
     }
 
     @ViewBuilder
-    private func contextMenu(for chat: ChatSession) -> some View {
+    func contextMenu(for chat: ChatSession) -> some View {
         let targets = ui.selection.contains(chat.id) ? selectedChats : [chat]
         if targets.count == 1 {
             Menu("Riprendi in \(Launcher.terminalName) con…") {
@@ -302,11 +314,26 @@ struct ChatsView: View {
         } else if !targets.contains(where: \.isCodex) {
             Button("Unisci \(targets.count) chat…") { ui.mergeTargets = targets }
         }
-        // Merge, slim and move know Claude Code's transcript format only.
-        if !targets.contains(where: \.isCodex) {
+        // Slimming is offered where it pays (the lightbulb, Consigli), not on every chat.
+        if !targets.contains(where: \.isCodex), targets.contains(where: { store.slimEntry(for: $0)?.isWorthIt ?? false }) {
             Button(targets.count == 1 ? "Snellisci…" : "Snellisci \(targets.count) chat…") { ui.slimTargets = targets }
         }
         Divider()
+        if targets.allSatisfy(store.isPinned) {
+            Button("Togli dalle fissate") { store.setPinned(false, for: targets) }
+        } else {
+            Button("Fissa in alto") { store.setPinned(true, for: targets) }
+        }
+        if targets.count == 1, !chat.isCodex {
+            if let team = store.team(for: chat.id) {
+                if team.isActive { Button("Ferma tutti gli agenti") { store.stopTeam(chat.id) } }
+            } else if store.worker(chatID: chat.id) == nil {
+                Button("Rendi orchestratore") { store.makeOrchestrator(chat) }
+            }
+        }
+        Button("Lavora solo su \(URL(fileURLWithPath: chat.workingDirectory).lastPathComponent)") {
+            ui.focusedProject = chat.workingDirectory
+        }
         if targets.allSatisfy(store.isWorking) {
             Button("Togli da In lavorazione") { store.setWorking(false, for: targets) }
         } else {
@@ -425,22 +452,28 @@ private struct ChatRow: View {
             if chat.isCodex { ProviderBadge(provider: .codex, iconOnly: true) }
             Text(chat.displayTitle)
                 .lineLimit(1)
+                .layoutPriority(1)
                 .help(description ?? chat.preview ?? "")
             if hasAdvice {
                 Image(systemName: "lightbulb.fill").font(.caption2).foregroundStyle(.yellow)
             }
             Spacer(minLength: 6)
-            Text(chat.projectName)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            // The folder only when it fits whole: no stray letter next to a long title.
+            ViewThatFits(in: .horizontal) {
+                Text(chat.projectName)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+                Color.clear.frame(width: 0, height: 0)
+            }
             if contextTokens > 0 { ContextRing(tokens: contextTokens, size: 14) }
             Text(relative(chat.modifiedAt))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 52, alignment: .trailing)
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 4)
     }
 
     private var comfortableBody: some View {
@@ -514,11 +547,11 @@ private struct ChatRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }
 
-// MARK: - Multi ui.selection
+// MARK: - Multi selection
 
 private struct MultiSelectionView: View {
     @ObservedObject var store: DeckStore

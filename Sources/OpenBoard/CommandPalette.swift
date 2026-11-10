@@ -5,6 +5,8 @@ extension Notification.Name {
     static let showSection = Notification.Name("showSection")
     static let resetSmartFilters = Notification.Name("resetSmartFilters")
     static let newChat = Notification.Name("newChat")
+    /// Object: the project folder.
+    static let editMilestones = Notification.Name("editMilestones")
     static let focusChat = Notification.Name("focusChat")
     static let toggleTerminal = Notification.Name("toggleTerminal")
     static let showRemote = Notification.Name("showRemote")

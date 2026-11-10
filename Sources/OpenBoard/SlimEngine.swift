@@ -140,6 +140,13 @@ enum SlimEngine {
         "hook_success", "total_tokens_reminder", "silent_turn_reminder", "prompt_snapshot",
         "skill_listing", "agent_listing_delta", "mcp_instructions_delta",
     ]
+    /// Of those, the ones Claude Code does send back on resume (measured: dropping them cut the
+    /// tokens of a resumed chat; prompt snapshots made no difference). Each resume adds a new
+    /// skill and agent listing, so chats resumed often carry several copies.
+    private static let resentAttachments: Set<String> = [
+        "hook_success", "total_tokens_reminder", "silent_turn_reminder",
+        "skill_listing", "agent_listing_delta", "mcp_instructions_delta",
+    ]
     private static let ephemeralSystem: Set<String> = [
         "turn_duration", "stop_hook_summary", "away_summary", "informational", "api_error",
     ]
@@ -263,8 +270,13 @@ enum SlimEngine {
         func drop(_ i: Int, _ category: Category) {
             guard plan.dropped.insert(i).inserted else { return }
             let line = lines[i]
-            // Automatic reminders are not all sent to Claude: claim no token saving for them.
-            let tokens = category != .technical && inContext(line) ? contextTokens(line.json) : 0
+            var tokens = category != .technical && inContext(line) ? contextTokens(line.json) : 0
+            // Of the automatic attachments only some are sent to Claude: count those.
+            if category == .technical, inContext(line), line.type == "attachment",
+               let attachment = line.json["attachment"] as? [String: Any],
+               resentAttachments.contains(attachment["type"] as? String ?? "") {
+                tokens = jsonSize(attachment) * 10 / 35
+            }
             credit(category, bytes: line.raw.utf8.count + 1, tokens: tokens)
         }
 
@@ -375,7 +387,7 @@ enum SlimEngine {
                             if images > 0 {
                                 blocks[b]["content"] = items
                                 let after = jsonSize(blocks[b])
-                                credit(.images, bytes: before - after, tokens: contextual ? images * imageTokens : 0)
+                                credit(.images, bytes: before - after, tokens: contextual ? images : 0)
                                 changed = true
                             }
                         }
@@ -389,8 +401,9 @@ enum SlimEngine {
                         }
                     } else if (type == "image" || type == "document"), enabled.contains(.pastedImages) {
                         let before = jsonSize(blocks[b])
+                        let pastedTokens = blockTokens(blocks[b])
                         blocks[b] = ["type": "text", "text": "[OpenBoard: immagine incollata rimossa]"]
-                        credit(.pastedImages, bytes: before - jsonSize(blocks[b]), tokens: contextual ? imageTokens : 0)
+                        credit(.pastedImages, bytes: before - jsonSize(blocks[b]), tokens: contextual ? pastedTokens : 0)
                         changed = true
                     }
                 }
@@ -461,14 +474,53 @@ enum SlimEngine {
         return plan
     }
 
-    /// Replaces image and document blocks with a note; returns how many were replaced.
+    /// Replaces image and document blocks with a note; returns the tokens they cost (0: none found).
     private static func replaceImages(_ items: inout [[String: Any]]) -> Int {
-        var count = 0
+        var tokens = 0
         for i in items.indices where ["image", "document"].contains(items[i]["type"] as? String ?? "") {
+            tokens += max(1, blockTokens(items[i]))
             items[i] = ["type": "text", "text": "[OpenBoard: immagine rimossa, Claude l'aveva già vista]"]
-            count += 1
         }
-        return count
+        return tokens
+    }
+
+    /// Tokens of an image: about one per 750 pixels after Claude scales it down to its maximum
+    /// size (long edge 2576 px on current models). Read from the image's own header; a flat
+    /// estimate when it can't be read.
+    static func imageTokens(of block: [String: Any]) -> Int {
+        guard block["type"] as? String == "image",
+              let source = block["source"] as? [String: Any], let data = source["data"] as? String,
+              let size = imageSize(base64: data) else { return imageTokens }
+        var (width, height) = (Double(size.width), Double(size.height))
+        let longEdge = max(width, height)
+        if longEdge > 2576 { width *= 2576 / longEdge; height *= 2576 / longEdge }
+        return max(50, min(4784, Int(width * height / 750)))
+    }
+
+    static func imageSize(base64: String) -> (width: Int, height: Int)? {
+        // The header is near the start: decode only what's needed (JPEG metadata can be long).
+        let prefix = String(base64.prefix(96_000))
+        guard let bytes = Data(base64Encoded: String(prefix.prefix(prefix.count / 4 * 4))).map(Array.init), bytes.count > 24 else { return nil }
+        func be16(_ i: Int) -> Int { Int(bytes[i]) << 8 | Int(bytes[i + 1]) }
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            let w = Int(bytes[16]) << 24 | Int(bytes[17]) << 16 | Int(bytes[18]) << 8 | Int(bytes[19])
+            let h = Int(bytes[20]) << 24 | Int(bytes[21]) << 16 | Int(bytes[22]) << 8 | Int(bytes[23])
+            return w > 0 && h > 0 ? (w, h) : nil
+        }
+        if bytes.starts(with: [0x47, 0x49, 0x46]) {
+            return (Int(bytes[6]) | Int(bytes[7]) << 8, Int(bytes[8]) | Int(bytes[9]) << 8)
+        }
+        if bytes.starts(with: [0xFF, 0xD8]) {
+            var i = 2
+            while i + 9 < bytes.count, bytes[i] == 0xFF {
+                let marker = bytes[i + 1]
+                if (0xC0...0xCF).contains(marker), ![0xC4, 0xC8, 0xCC].contains(marker) {
+                    return (be16(i + 7), be16(i + 5))
+                }
+                i += 2 + be16(i + 2)
+            }
+        }
+        return nil
     }
 
     /// Keeps the start and the end of a long tool result.
@@ -515,7 +567,8 @@ enum SlimEngine {
 
     private static func blockTokens(_ block: [String: Any]) -> Int {
         switch block["type"] as? String {
-        case "image", "document": return imageTokens
+        case "image": return imageTokens(of: block)
+        case "document": return imageTokens
         case "text": return (block["text"] as? String ?? "").count / 4
         case "thinking": return (block["thinking"] as? String ?? "").count / 4
         case "tool_use": return jsonSize(block["input"] ?? [:]) / 4
