@@ -124,6 +124,10 @@ extension ChatsView {
     }
 
     func toggleExpanded(_ chat: ChatSession) {
+        if !ui.query.isEmpty {
+            if ui.searchCollapsed.contains(chat.id) { ui.searchCollapsed.remove(chat.id) } else { ui.searchCollapsed.insert(chat.id) }
+            return
+        }
         if isExpanded(chat) {
             ui.expanded.remove(chat.id)
             ui.collapsedTeams.insert(chat.id)
@@ -158,7 +162,8 @@ extension ChatsView {
                     .selectionDisabled()
             }
             ForEach(projects) { project in
-                let collapsed = !searching && ui.focusedProject == nil && ui.collapsedProjects.contains(project.id)
+                let collapsed = ui.focusedProject == nil
+                    && (searching ? ui.searchCollapsed.contains(project.id) : ui.collapsedProjects.contains(project.id))
                 if ui.focusedProject == nil {
                     ProjectHeaderRow(
                         store: store, project: project, collapsed: collapsed,
@@ -190,7 +195,7 @@ extension ChatsView {
     private func chatNode(_ chat: ChatSession, depth: Int, inPinnedZone: Bool) -> some View {
         let agents = store.workerChats(of: chat.id)
         let isTeam = store.isOrchestrator(chat)
-        let expanded = (isExpanded(chat) || !ui.query.isEmpty) && !agents.isEmpty
+        let expanded = (ui.query.isEmpty ? isExpanded(chat) : !ui.searchCollapsed.contains(chat.id)) && !agents.isEmpty
         SidebarChatRow(
             chat: chat,
             title: chat.displayTitle,

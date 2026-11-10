@@ -17,10 +17,16 @@ final class ChatsUI: ObservableObject {
     /// Orchestrators opened or closed by hand (otherwise they open while their agents work).
     @Published var expanded: Set<String> = []
     @Published var collapsedTeams: Set<String> = []
+    /// Closed by hand during a search (everything opens to show the results); cleared with the search.
+    @Published var searchCollapsed: Set<String> = []
     /// Rows shown per project after “Mostra altre”.
     @Published var shown: [String: Int] = [:]
 
     func toggleProject(_ path: String) {
+        if !query.isEmpty {
+            if searchCollapsed.contains(path) { searchCollapsed.remove(path) } else { searchCollapsed.insert(path) }
+            return
+        }
         if collapsedProjects.contains(path) { collapsedProjects.remove(path) } else { collapsedProjects.insert(path); shown[path] = nil }
     }
     @Published var accountFilter: String?
@@ -112,6 +118,7 @@ struct ChatsView: View {
             focusedChatID = nil
         }
         .onChange(of: ui.query) { _, value in
+            if value.isEmpty { ui.searchCollapsed.removeAll() }
             if ui.searchContent { store.searchContent(value) }
         }
         .onChange(of: ui.searchContent) { _, enabled in
