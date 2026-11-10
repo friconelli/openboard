@@ -259,7 +259,7 @@ extension DeckStore {
                 team.workers[index].startedAt = Date()
             }
             // Same account and model as the orchestrator; a plan-only orchestrator still gets agents that work.
-            let mode = parent?.mode == .plan ? .acceptEdits : (parent?.mode ?? .acceptEdits)
+            let mode = parent?.mode == .plan ? LiveChat.PermissionMode.standard : (parent?.mode ?? .standard)
             let chat = startLiveChat(in: team.directory, account: parent?.account ?? preferredAccount, model: parent?.model,
                                      mode: mode, message: AgentTeams.taskMessage(worker), id: chatID)
             if let index = chats.firstIndex(where: { $0.id == chat.id }) { chats[index].title = worker.title }

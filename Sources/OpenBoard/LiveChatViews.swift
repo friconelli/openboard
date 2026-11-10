@@ -21,10 +21,17 @@ extension Theme {
 /// What happened in the current turn(s), after the transcript history.
 struct LiveItemsView: View {
     @ObservedObject var live: LiveChat
+    @AppStorage(ChatStyle.key) private var chatStyle: ChatStyle = .terminal
 
     var body: some View {
         ForEach(live.items) { item in
             switch item {
+            case .user(_, let text) where chatStyle == .terminal:
+                TerminalPrompt(text: text)
+            case .text(_, let text) where chatStyle == .terminal:
+                TerminalAnswer(text: AgentTeams.displayText(text))
+            case .tool(let tool) where chatStyle == .terminal:
+                TerminalToolLine(tool: tool)
             case .user(_, let text):
                 HStack {
                     Spacer(minLength: 60)
@@ -188,9 +195,9 @@ private struct ActivityLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "sparkle")
+            Text("✻")
                 .foregroundStyle(Theme.coral)
-                .symbolEffect(.pulse)
+                .phaseAnimator([1.0, 0.35]) { view, opacity in view.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.8) }
             // The terminal's word for the turn, then what is running now when it says more.
             Text((live.spinnerVerb ?? live.activity ?? "Lavora") + "…")
                 .font(.callout)
@@ -280,13 +287,16 @@ struct ChatComposer: View {
     @State private var dropTargeted = false
     @State private var takingOver = false
 
-    /// The draft is kept per chat (and across launches) until it is sent.
-    private var text: String {
-        get { store.drafts[live.chatID] ?? "" }
-        nonmutating set { store.setDraft(newValue, for: live.chatID) }
-    }
+    /// What is being typed. It lives here, not in the store: a change published to the whole app
+    /// at every key redrew the chat list and made typing lag. The draft is saved quietly per chat
+    /// (and across launches) until it is sent.
+    @State private var text = ""
+    @State private var loadedFor: String?
     private var textBinding: Binding<String> {
-        Binding(get: { store.drafts[live.chatID] ?? "" }, set: { store.setDraft($0, for: live.chatID) })
+        Binding(get: { text }, set: { value in
+            text = value
+            store.setDraft(value, for: live.chatID)
+        })
     }
 
     private let models: [(String, String?)] = [("Predefinito", nil), ("Opus", "opus"), ("Sonnet", "sonnet"), ("Haiku", "haiku")]
@@ -415,6 +425,14 @@ struct ChatComposer: View {
         .padding(.bottom, 14)
         .padding(.top, 6)
         .onChange(of: blockingSession?.pid) { _, _ in takingOver = false }
+        .onAppear(perform: loadDraft)
+        .onChange(of: live.chatID) { _, _ in loadDraft() }
+    }
+
+    private func loadDraft() {
+        guard loadedFor != live.chatID else { return }
+        loadedFor = live.chatID
+        text = store.drafts[live.chatID] ?? ""
     }
 
     private func submit() {
@@ -422,6 +440,7 @@ struct ChatComposer: View {
         let message = text
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         text = ""
+        store.setDraft("", for: live.chatID)
         let files = attachments
         attachments = []
         live.send(message, attachments: files)
@@ -478,5 +497,83 @@ struct ChatComposer: View {
         .lineLimit(1)
         .fixedSize()
         .help(usage.session?.resets.map { "Limite di 5 ore: si azzera \(PlanUsage.countdown(to: $0))" } ?? "Consumo del piano")
+    }
+}
+
+
+// MARK: - Terminal style
+
+/// Your message as in Claude Code: "> " and the text on a slightly lighter band.
+struct TerminalPrompt: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(">").foregroundStyle(Term.dim)
+            Text(text).foregroundStyle(Term.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Term.promptBackground, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+}
+
+/// Claude's answer: a white dot, then the text.
+struct TerminalAnswer: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("⏺").foregroundStyle(Term.text)
+            MarkdownView(text: text)
+            Spacer(minLength: 20)
+        }
+    }
+}
+
+/// A tool call as in Claude Code: "⏺ Bash(npm test)" and the first lines of its output under "⎿".
+struct TerminalToolLine: View {
+    let tool: LiveChat.Tool
+    @State private var expanded = false
+
+    private var dot: Color { !tool.isDone ? Term.claude : tool.isError ? Term.red : Term.green }
+
+    private var output: [String] {
+        let lines = (tool.result ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        return expanded ? Array(lines.prefix(400)) : Array(lines.prefix(3))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("⏺").foregroundStyle(dot)
+                    .opacity(tool.isDone ? 1 : 0.9)
+                (Text(tool.name).bold() + Text(tool.summary.isEmpty ? "" : "(\(tool.summary))").foregroundColor(Term.dim))
+                    .lineLimit(expanded ? nil : 1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            if tool.isDone {
+                let lines = output
+                let total = (tool.result ?? "").split(separator: "\n", omittingEmptySubsequences: false).count
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(index == 0 ? "  ⎿" : "   ").foregroundStyle(Term.dim)
+                            Text(line.isEmpty && index == 0 ? "(nessun output)" : line)
+                                .foregroundStyle(tool.isError ? Term.red : Term.dim)
+                                .lineLimit(expanded ? nil : 1)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    if !expanded && total > 3 {
+                        Text("     … +\(total - 3) righe (clic per vedere tutto)").foregroundStyle(Term.dim.opacity(0.7))
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { expanded.toggle() }
     }
 }

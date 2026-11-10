@@ -25,7 +25,8 @@ final class DeckStore: ObservableObject {
     @Published var planUsage: [String: PlanUsage.Snapshot] = [:]
     @Published var tasks: [ScheduledTask] = TaskScheduler.load()
     /// Unsent text per chat, kept across launches.
-    @Published private(set) var drafts: [String: String] = DeckStore.loadDrafts()
+    /// Not published: typing must not redraw the app (the composer keeps its own copy).
+    private(set) var drafts: [String: String] = DeckStore.loadDrafts()
     private var draftSave: DispatchWorkItem?
 
     private static var draftsURL: URL { ClaudePaths.appSupport.appendingPathComponent("drafts.json") }

@@ -15,7 +15,7 @@ struct NewChatSheet: View {
     @State private var message = ""
     @State private var accountID: String?
     @State private var model: String?
-    @State private var mode: LiveChat.PermissionMode = .manual
+    @State private var mode: LiveChat.PermissionMode = .standard
     @State private var inTerminal = false
     @State private var provider: Provider = .claude
     @State private var sandbox: LiveChat.CodexSandbox = .workspaceWrite
@@ -76,7 +76,7 @@ struct NewChatSheet: View {
                     }
                     .toggleStyle(.button)
                     .help("Claude divide il lavoro in piccoli compiti e li affida ad agenti: ognuno, finito il suo, manda il resoconto all'orchestratore e si chiude")
-                    .onChange(of: team) { _, on in if on && mode == .manual { mode = .acceptEdits } }
+                    .onChange(of: team) { _, on in if on && mode == .manual { mode = .standard } }
                 }
                 if Codex.isInstalled {
                     Picker("", selection: $provider) {
@@ -126,7 +126,7 @@ struct NewChatSheet: View {
         }
         .onAppear {
             folder = initialFolder ?? store.recentFolders.first?.path
-            if initialTeam { team = true; mode = .acceptEdits }
+            if initialTeam { team = true; if mode == .manual { mode = .standard } }
             accountID = (folder.flatMap(store.account(forFolder:)) ?? store.preferredAccount)?.id
             messageFocused = true
         }

@@ -12,14 +12,30 @@ import SwiftUI
 @MainActor
 final class LiveChat: ObservableObject {
     enum PermissionMode: String, CaseIterable, Identifiable {
-        case manual, acceptEdits, plan, bypassPermissions
+        // The same modes as Claude Code in the terminal (shift+tab), in its order.
+        case manual, acceptEdits, plan, auto, bypassPermissions, dontAsk
         var id: String { rawValue }
+        /// The mode a new chat starts in, as in the terminal with auto mode on.
+        static let standard: PermissionMode = .auto
         var title: String {
             switch self {
             case .manual: return "Chiedi"
             case .acceptEdits: return "Accetta modifiche"
             case .plan: return "Solo piano"
+            case .auto: return "Auto"
             case .bypassPermissions: return "Tutto senza chiedere"
+            case .dontAsk: return "Non chiedere"
+            }
+        }
+        /// How the terminal calls it.
+        var terminalName: String {
+            switch self {
+            case .manual: return "default"
+            case .acceptEdits: return "accept edits on"
+            case .plan: return "plan mode on"
+            case .auto: return "auto mode on"
+            case .bypassPermissions: return "bypass permissions on"
+            case .dontAsk: return "don't ask"
             }
         }
         var detail: String {
@@ -27,7 +43,9 @@ final class LiveChat: ObservableObject {
             case .manual: return "Claude chiede prima di modificare file o eseguire comandi"
             case .acceptEdits: return "Le modifiche ai file passano da sole, i comandi chiedono"
             case .plan: return "Claude legge e propone un piano, non cambia niente"
+            case .auto: return "Claude decide da solo cosa è sicuro e chiede solo per le azioni rischiose (auto mode on)"
             case .bypassPermissions: return "Nessuna domanda: usalo solo in cartelle di cui ti fidi"
+            case .dontAsk: return "Usa solo i permessi già concessi; tutto il resto lo nega senza chiedere"
             }
         }
     }
@@ -114,7 +132,7 @@ final class LiveChat: ObservableObject {
     @Published private(set) var contextTokens = 0
     @Published var account: ClaudeAccount?
     @Published var model: String?
-    @Published var mode: PermissionMode = .manual {
+    @Published var mode: PermissionMode = .standard {
         didSet {
             // Claude Code switches mode on the fly: no need to restart it.
             guard mode != oldValue, process?.isRunning == true else { return }

@@ -555,3 +555,39 @@ struct ProviderBadge: View {
         .help(provider == .codex ? "Chat di Codex" : "Chat di Claude Code")
     }
 }
+
+/// How the open chat looks: bubbles, or like Claude Code in a terminal.
+enum ChatStyle: String, CaseIterable, Identifiable {
+    case terminal, chat
+    static let key = "chatStyle"
+    var id: String { rawValue }
+    var title: String { self == .terminal ? "Terminale" : "Chat" }
+}
+
+/// Colours of the terminal style: dark background, Claude's orange, green/red dots as in Claude Code.
+enum Term {
+    static let background = Theme.hex(0x17191C)
+    static let text = Theme.hex(0xE3E5E8)
+    static let dim = Theme.hex(0x8C929B)
+    static let promptBackground = Theme.hex(0x24282E)
+    static let claude = Theme.hex(0xD97757)
+    static let green = Theme.hex(0x6FBF73)
+    static let red = Theme.hex(0xE5534B)
+    static let fontSize: CGFloat = 12.5
+}
+
+extension View {
+    /// Monospaced type and terminal colours for everything inside, when the style asks for it.
+    @ViewBuilder
+    func terminalLook(_ on: Bool) -> some View {
+        if on {
+            self.font(.system(size: Term.fontSize))
+                .fontDesign(.monospaced)
+                .foregroundStyle(Term.text)
+                .environment(\.colorScheme, .dark)
+                .tint(Term.claude)
+        } else {
+            self
+        }
+    }
+}

@@ -15,6 +15,7 @@ struct TranscriptView: View {
     @State private var showFiles = false
     @State private var showGit = false
     @State private var showTerminal = false
+    @AppStorage(ChatStyle.key) private var chatStyle: ChatStyle = .terminal
 
     /// Chatting here while the same chat is open in a terminal (or in a leftover process from
     /// an earlier attempt here) would write it twice.
@@ -119,6 +120,8 @@ struct TranscriptView: View {
                     // Native bottom anchoring: with lazily measured rows, a scrollTo right after
                     // loading can land past the content and leave the view blank.
                     .defaultScrollAnchor(.bottom)
+                    .terminalLook(chatStyle == .terminal)
+                    .background(chatStyle == .terminal ? Term.background : .clear)
                     .onChange(of: messages.count) { _, _ in
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
@@ -134,6 +137,8 @@ struct TranscriptView: View {
                 ChatComposer(store: store, live: live, blockedReason: blockedReason, blockingSession: blockingSession) { session in
                     store.killSession(session)
                 }
+                .terminalLook(chatStyle == .terminal)
+                .background(chatStyle == .terminal ? Term.background : .clear)
             }
                 }
     }
@@ -251,6 +256,9 @@ struct TranscriptView: View {
                     if !chat.isCodex {
                         Button("Snellisci…") { actions.slim([chat]) }
                     }
+                    Picker("Aspetto della chat", selection: $chatStyle) {
+                        ForEach(ChatStyle.allCases) { Text($0.title).tag($0) }
+                    }
                     Button("Esporta in Markdown…") { MarkdownExport.save(chat) }
                     Button("Mostra nel Finder") { NSWorkspace.shared.activateFileViewerSelecting([chat.fileURL]) }
                     Button("Copia ID sessione") {
@@ -277,8 +285,28 @@ struct TranscriptView: View {
 
 private struct MessageView: View {
     let message: TranscriptMessage
+    @AppStorage(ChatStyle.key) private var chatStyle: ChatStyle = .terminal
 
     var body: some View {
+        if chatStyle == .terminal { terminalBody } else { chatBody }
+    }
+
+    @ViewBuilder
+    private var terminalBody: some View {
+        switch message.kind {
+        case .user:
+            TerminalPrompt(text: message.text)
+        case .assistant:
+            TerminalAnswer(text: AgentTeams.displayText(message.text))
+        case .command:
+            Text("> " + message.text).foregroundStyle(Term.dim)
+        case .tools(let tools):
+            ToolGroupView(tools: tools)
+        }
+    }
+
+    @ViewBuilder
+    private var chatBody: some View {
         switch message.kind {
         case .user:
             HStack {
@@ -320,8 +348,29 @@ private struct MessageView: View {
 private struct ToolGroupView: View {
     let tools: [String]
     @State private var expanded = false
+    @AppStorage(ChatStyle.key) private var chatStyle: ChatStyle = .terminal
 
     var body: some View {
+        if chatStyle == .terminal { terminalBody } else { chatBody }
+    }
+
+    /// "⏺ Read(…)" lines as in Claude Code; several are folded into one line.
+    private var terminalBody: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            let shown = expanded || tools.count == 1 ? tools : [tools.count == 1 ? tools[0] : "\(tools.count) strumenti usati"]
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, tool in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("⏺").foregroundStyle(Term.green)
+                    Text(tool).foregroundStyle(Term.dim).lineLimit(1).truncationMode(.middle)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if tools.count > 1 { expanded.toggle() } }
+        .help(tools.count > 1 ? (expanded ? "Raggruppa" : "Mostra tutti") : "")
+    }
+
+    private var chatBody: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() }
