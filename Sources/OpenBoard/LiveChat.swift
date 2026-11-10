@@ -84,6 +84,7 @@ final class LiveChat: ObservableObject {
             guard isRunning != oldValue else { return }
             turnStartedAt = isRunning ? Date() : nil
             activity = isRunning ? "Pensa" : nil
+            if isRunning { spinnerVerb = SpinnerVerbs.random(configDir: account?.configDir) }
             thinkingText = ""
             if isRunning { turnOutputTokens = 0; outputBase = 0; streamingTools.removeAll() }
             if isRunning { startWatchdog() } else { stopWatchdog() }
@@ -130,6 +131,8 @@ final class LiveChat: ObservableObject {
 
     // MARK: - What Claude is doing (status line, like the terminal)
 
+    /// The word Claude Code would show in the terminal for this turn ("Razzmatazzing").
+    @Published private(set) var spinnerVerb: String?
     /// The current step in words: "Pensa", "Esegue `npm test`", "Legge Package.swift"…
     @Published private(set) var activity: String?
     /// The reasoning streamed while Claude thinks (dropped when the block ends).

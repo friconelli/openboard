@@ -220,7 +220,7 @@ struct ContentView: View {
                     store.setMilestones([Milestone(text: milestone)], for: folder)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    let chat = store.startOrchestrator(in: folder, account: store.preferredAccount, model: defaults.string(forKey: "debugModel"),
+                    let chat = store.startOrchestrator(in: folder, account: defaults.string(forKey: "debugAccount").flatMap { name in store.accounts.first { $0.name == name } } ?? store.preferredAccount, model: defaults.string(forKey: "debugModel"),
                                                        mode: defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) ?? .acceptEdits, parallel: 2, message: goal)
                     chatsUI.focusedProject = folder
                     focusedChatID = chat.id

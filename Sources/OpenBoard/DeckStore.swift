@@ -76,6 +76,7 @@ final class DeckStore: ObservableObject {
     var activeSessionIDs: Set<String> { Set(activeSessions.map(\.sessionId)) }
 
     func start() {
+        SpinnerVerbs.preload()
         Launcher.systemPromptForFolder = { [weak self] folder in
             MainActor.assumeIsolated { self?.milestonesPrompt(for: folder) }
         }

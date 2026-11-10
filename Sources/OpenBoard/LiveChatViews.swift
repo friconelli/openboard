@@ -191,10 +191,18 @@ private struct ActivityLine: View {
             Image(systemName: "sparkle")
                 .foregroundStyle(Theme.coral)
                 .symbolEffect(.pulse)
-            Text((live.activity ?? "Lavora") + "…")
+            // The terminal's word for the turn, then what is running now when it says more.
+            Text((live.spinnerVerb ?? live.activity ?? "Lavora") + "…")
                 .font(.callout)
+                .foregroundStyle(Theme.coral)
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .fixedSize()
+            if let step = live.activity, live.spinnerVerb != nil, step != "Pensa" {
+                Text(step)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(details(at: context.date))
                     .font(.caption.monospacedDigit())
