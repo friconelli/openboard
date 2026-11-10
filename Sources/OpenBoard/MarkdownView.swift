@@ -70,7 +70,11 @@ struct MarkdownView: View {
     }
 
     static func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        let parsed = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        // Bare addresses (https://…) become links too.
+        let mutable = NSMutableAttributedString(parsed)
+        TerminalRender.linkify(mutable)
+        return (try? AttributedString(mutable, including: \.foundation)) ?? parsed
     }
 
     static func parse(_ text: String) -> [Block] {

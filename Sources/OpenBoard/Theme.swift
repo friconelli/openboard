@@ -571,6 +571,7 @@ enum Term {
     static let dim = Theme.hex(0x8C929B)
     static let promptBackground = Theme.hex(0x24282E)
     static let claude = Theme.hex(0xD97757)
+    static let link = Theme.hex(0x6CB6FF)
     static let green = Theme.hex(0x6FBF73)
     static let red = Theme.hex(0xE5534B)
     static let fontSize: CGFloat = 12.5

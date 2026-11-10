@@ -508,10 +508,9 @@ struct TerminalPrompt: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Text(">").foregroundStyle(Term.dim)
-            Text(text).foregroundStyle(Term.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            SelectableText(attributed: TerminalRender.plain(text))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -524,10 +523,10 @@ struct TerminalAnswer: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Text("⏺").foregroundStyle(Term.text)
-            MarkdownView(text: text)
-            Spacer(minLength: 20)
+            SelectableText(attributed: TerminalRender.markdown(text))
+                .padding(.trailing, 20)
         }
     }
 }
@@ -554,6 +553,9 @@ struct TerminalToolLine: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { expanded.toggle() }
+            .help(expanded ? "Riduci l'output" : "Mostra tutto l'output")
             if tool.isDone {
                 let lines = output
                 let total = (tool.result ?? "").split(separator: "\n", omittingEmptySubsequences: false).count
@@ -569,11 +571,10 @@ struct TerminalToolLine: View {
                     }
                     if !expanded && total > 3 {
                         Text("     … +\(total - 3) righe (clic per vedere tutto)").foregroundStyle(Term.dim.opacity(0.7))
+                            .onTapGesture { expanded = true }
                     }
                 }
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { expanded.toggle() }
     }
 }
