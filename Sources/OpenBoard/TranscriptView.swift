@@ -16,10 +16,13 @@ struct TranscriptView: View {
     @State private var showGit = false
     @State private var showTerminal = false
 
-    /// Chatting here while the same chat is open in a terminal would write it twice.
+    /// Chatting here while the same chat is open in a terminal (or in a leftover process from
+    /// an earlier attempt here) would write it twice.
+    private var blockingSession: ActiveSession? {
+        store.activeSessions.first { $0.sessionId == chat.id && $0.pid != live?.pid }
+    }
     private var blockedReason: String? {
-        let others = store.activeSessions.filter { $0.sessionId == chat.id && $0.pid != live?.pid }
-        return others.isEmpty ? nil : "Questa chat è aperta in un terminale: chiudila lì per scrivere da qui."
+        blockingSession == nil ? nil : "Questa chat è aperta in un terminale: chiudila lì per scrivere da qui."
     }
 
     var body: some View {
@@ -128,7 +131,9 @@ struct TranscriptView: View {
                 TeamBar(store: store, chatID: chat.id)
             }
             if let live {
-                ChatComposer(store: store, live: live, blockedReason: blockedReason)
+                ChatComposer(store: store, live: live, blockedReason: blockedReason, blockingSession: blockingSession) { session in
+                    store.killSession(session)
+                }
             }
                 }
     }

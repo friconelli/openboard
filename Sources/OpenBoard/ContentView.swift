@@ -221,7 +221,7 @@ struct ContentView: View {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     let chat = store.startOrchestrator(in: folder, account: store.preferredAccount, model: defaults.string(forKey: "debugModel"),
-                                                       mode: .acceptEdits, parallel: 2, message: goal)
+                                                       mode: defaults.string(forKey: "debugMode").flatMap(LiveChat.PermissionMode.init(rawValue:)) ?? .acceptEdits, parallel: 2, message: goal)
                     chatsUI.focusedProject = folder
                     focusedChatID = chat.id
                 }

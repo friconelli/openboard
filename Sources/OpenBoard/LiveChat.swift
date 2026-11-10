@@ -83,9 +83,21 @@ final class LiveChat: ObservableObject {
         didSet {
             guard isRunning != oldValue else { return }
             turnStartedAt = isRunning ? Date() : nil
+            activity = isRunning ? "Pensa" : nil
+            thinkingText = ""
+            if isRunning { turnOutputTokens = 0; outputBase = 0; streamingTools.removeAll() }
+            if isRunning { startWatchdog() } else { stopWatchdog() }
             onStateChange?()
         }
     }
+    /// Set when a running turn has gone fully silent (no stdout at all, not even a tool
+    /// starting) for a while: the underlying `claude`/`codex` process is most likely stuck on
+    /// something (seen once with a plain `ls | grep` that never returned). The stop button
+    /// already exists; this just makes a silent hang visible instead of an endless spinner.
+    @Published private(set) var stalledSince: Date?
+    private var lastActivityAt: Date?
+    private var watchdog: Timer?
+    private static let stallThreshold: TimeInterval = 90
     @Published private(set) var pendingPermission: Permission? {
         didSet { if (pendingPermission == nil) != (oldValue == nil) { onStateChange?() } }
     }
@@ -105,12 +117,54 @@ final class LiveChat: ObservableObject {
         didSet {
             // Claude Code switches mode on the fly: no need to restart it.
             guard mode != oldValue, process?.isRunning == true else { return }
-            write(["type": "control_request", "request_id": UUID().uuidString,
+            let requestID = UUID().uuidString
+            modeRequests.insert(requestID)
+            write(["type": "control_request", "request_id": requestID,
                    "request": ["subtype": "set_permission_mode", "mode": mode.rawValue]])
             startedWith?.mode = mode
         }
     }
     private var stopRequested = false
+    /// Mode switches sent to Claude: if one is refused, the next message restarts it in that mode.
+    private var modeRequests: Set<String> = []
+
+    // MARK: - What Claude is doing (status line, like the terminal)
+
+    /// The current step in words: "Pensa", "Esegue `npm test`", "Legge Package.swift"…
+    @Published private(set) var activity: String?
+    /// The reasoning streamed while Claude thinks (dropped when the block ends).
+    @Published private(set) var thinkingText = ""
+    /// Tokens Claude has written in this turn.
+    @Published private(set) var turnOutputTokens = 0
+    private var outputBase = 0
+    /// Tool calls being streamed, by content-block index: their input arrives in pieces.
+    private var streamingTools: [Int: (id: String, name: String, json: String)] = [:]
+
+    /// A tool call started and not answered yet (a long command, a sub-agent…).
+    var hasRunningTool: Bool {
+        items.contains { if case .tool(let tool) = $0 { return !tool.isDone } else { return false } }
+    }
+
+    static func activityLabel(name: String, input: [String: Any]) -> String {
+        let detail = summary(name: name, input: input)
+        let file = (input["file_path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
+        switch name {
+        case "Bash": return detail.isEmpty ? "Esegue un comando" : "Esegue `\(detail.prefix(70))`"
+        case "BashOutput": return "Legge l'output di un comando"
+        case "Read", "NotebookRead": return "Legge \(file ?? detail)"
+        case "Edit", "MultiEdit", "NotebookEdit": return "Modifica \(file ?? detail)"
+        case "Write": return "Scrive \(file ?? detail)"
+        case "Grep", "Glob", "LS": return detail.isEmpty ? "Cerca nei file" : "Cerca \(detail.prefix(60))"
+        case "WebFetch": return "Apre \(detail.prefix(60))"
+        case "WebSearch": return "Cerca sul web \(detail.prefix(60))"
+        case "Task", "Agent": return "Fa lavorare un agente: \(detail.prefix(60))"
+        case "TodoWrite": return "Aggiorna la lista delle cose da fare"
+        case "ToolSearch": return "Cerca uno strumento"
+        default:
+            let tool = name.hasPrefix("mcp__") ? name.split(separator: "_").last.map(String.init) ?? name : name
+            return detail.isEmpty ? "Usa \(tool)" : "Usa \(tool): \(detail.prefix(60))"
+        }
+    }
 
     /// Called when a turn ends, so the transcript and the indexes can be refreshed.
     var onTurnFinished: (() -> Void)?
@@ -225,6 +279,28 @@ final class LiveChat: ObservableObject {
         attachments.isEmpty ? text : text + (text.isEmpty ? "" : "\n") + attachments.map { "📎 \($0.lastPathComponent)" }.joined(separator: "  ")
     }
 
+    private func startWatchdog() {
+        lastActivityAt = Date()
+        stalledSince = nil
+        watchdog?.invalidate()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkStalled() }
+        }
+    }
+
+    private func stopWatchdog() {
+        watchdog?.invalidate()
+        watchdog = nil
+        stalledSince = nil
+    }
+
+    private func checkStalled() {
+        guard isRunning, stalledSince == nil, let lastActivityAt else { return }
+        // A command or a sub-agent at work prints nothing until it ends: give it much longer.
+        let threshold = hasRunningTool ? 15 * 60 : Self.stallThreshold
+        if Date().timeIntervalSince(lastActivityAt) >= threshold { stalledSince = Date() }
+    }
+
     func stop() {
         guard isRunning else { return }
         stopRequested = true
@@ -294,6 +370,9 @@ final class LiveChat: ObservableObject {
             "--include-partial-messages", isNew ? "--session-id" : "--resume", chatID,
             "--permission-mode", mode.rawValue,
             "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
+            // Lets "Tutto senza chiedere" be chosen after the start: without it Claude Code refuses
+            // the switch and keeps asking. It only allows the mode, it doesn't turn it on.
+            "--allow-dangerously-skip-permissions",
         ]
         if let model { arguments += ["--model", model] }
         if let prompt { arguments += ["--append-system-prompt", prompt] }
@@ -353,6 +432,8 @@ final class LiveChat: ObservableObject {
 
     private func receive(_ data: Data) {
         guard !data.isEmpty else { return }
+        lastActivityAt = Date()
+        stalledSince = nil
         buffer.append(data)
         while let newline = buffer.firstIndex(of: 0x0A) {
             let line = buffer[buffer.startIndex..<newline]
@@ -366,22 +447,44 @@ final class LiveChat: ObservableObject {
     private func handle(_ event: [String: Any]) {
         if provider == .codex { handleCodex(event); return }
         switch event["type"] as? String {
+        case "control_response":
+            guard let response = event["response"] as? [String: Any], let id = response["request_id"] as? String,
+                  modeRequests.remove(id) != nil, response["subtype"] as? String == "error" else { return }
+            // Refused: Claude stays in the old mode. The next message starts it again in the chosen one.
+            startedWith = nil
+            items.append(.notice(id: UUID().uuidString, text: "La modalità “\(mode.title)” vale dal prossimo messaggio", isError: false))
         case "stream_event":
             guard event["parent_tool_use_id"] is NSNull || event["parent_tool_use_id"] == nil,
                   let inner = event["event"] as? [String: Any] else { return }
             handleStream(inner)
         case "assistant":
-            guard event["parent_tool_use_id"] is NSNull || event["parent_tool_use_id"] == nil,
-                  let message = event["message"] as? [String: Any] else { return }
+            if !(event["parent_tool_use_id"] is NSNull || event["parent_tool_use_id"] == nil) {
+                // A sub-agent at work: show its step.
+                let blocks = (event["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+                if let use = blocks.last(where: { $0["type"] as? String == "tool_use" }) {
+                    activity = "Agente · " + Self.activityLabel(name: use["name"] as? String ?? "", input: use["input"] as? [String: Any] ?? [:])
+                }
+                return
+            }
+            guard let message = event["message"] as? [String: Any] else { return }
             if let usage = message["usage"] as? [String: Any] {
                 let tokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
                     .reduce(0) { $0 + ((usage[$1] as? NSNumber)?.intValue ?? 0) }
                 if tokens > 0 { contextTokens = tokens }
             }
             for block in message["content"] as? [[String: Any]] ?? [] where block["type"] as? String == "tool_use" {
-                guard let id = block["id"] as? String, !items.contains(where: { $0.id == id }) else { continue }
+                guard let id = block["id"] as? String else { continue }
                 let name = block["name"] as? String ?? "tool"
-                items.append(.tool(Tool(id: id, name: name, summary: Self.summary(name: name, input: block["input"] as? [String: Any] ?? [:]))))
+                let summary = Self.summary(name: name, input: block["input"] as? [String: Any] ?? [:])
+                if let index = items.firstIndex(where: { $0.id == id }) {
+                    // Already shown while streaming: complete its description.
+                    if case .tool(var tool) = items[index], tool.summary.isEmpty {
+                        tool = Tool(id: tool.id, name: tool.name, summary: summary, result: tool.result, isError: tool.isError)
+                        items[index] = .tool(tool)
+                    }
+                } else {
+                    items.append(.tool(Tool(id: id, name: name, summary: summary)))
+                }
             }
         case "user":
             guard let message = event["message"] as? [String: Any] else { return }
@@ -392,6 +495,7 @@ final class LiveChat: ObservableObject {
                 tool.result = Self.text(of: block["content"])
                 tool.isError = block["is_error"] as? Bool == true
                 items[index] = .tool(tool)
+                if !hasRunningTool { activity = "Pensa" }
             }
         case "control_request":
             guard let request = event["request"] as? [String: Any],
@@ -440,6 +544,12 @@ final class LiveChat: ObservableObject {
         switch event["type"] as? String {
         case "message_start":
             streaming.removeAll()
+            streamingTools.removeAll()
+            outputBase = turnOutputTokens
+        case "message_delta":
+            if let usage = event["usage"] as? [String: Any], let output = (usage["output_tokens"] as? NSNumber)?.intValue {
+                turnOutputTokens = outputBase + output
+            }
         case "content_block_start":
             let block = event["content_block"] as? [String: Any] ?? [:]
             switch block["type"] as? String {
@@ -449,15 +559,42 @@ final class LiveChat: ObservableObject {
             case "thinking", "redacted_thinking":
                 items.append(.thinking(id: UUID().uuidString))
                 streaming[index] = items.count - 1
+                thinkingText = ""
+                activity = "Pensa"
+            case "tool_use":
+                // Shown as soon as Claude starts writing the call, not when the message ends.
+                guard let id = block["id"] as? String else { break }
+                let name = block["name"] as? String ?? "tool"
+                if !items.contains(where: { $0.id == id }) { items.append(.tool(Tool(id: id, name: name, summary: ""))) }
+                streamingTools[index] = (id, name, "")
+                activity = Self.activityLabel(name: name, input: [:])
             default:
                 break
             }
         case "content_block_delta":
-            guard let delta = event["delta"] as? [String: Any], delta["type"] as? String == "text_delta",
-                  let position = streaming[index], items.indices.contains(position),
-                  case .text(let id, let text) = items[position] else { return }
-            items[position] = .text(id: id, text: text + (delta["text"] as? String ?? ""))
+            guard let delta = event["delta"] as? [String: Any] else { return }
+            switch delta["type"] as? String {
+            case "thinking_delta":
+                thinkingText += delta["thinking"] as? String ?? ""
+            case "input_json_delta":
+                streamingTools[index]?.json += delta["partial_json"] as? String ?? ""
+            case "text_delta":
+                guard let position = streaming[index], items.indices.contains(position),
+                      case .text(let id, let text) = items[position] else { return }
+                items[position] = .text(id: id, text: text + (delta["text"] as? String ?? ""))
+                activity = "Scrive la risposta"
+            default:
+                break
+            }
         case "content_block_stop":
+            if let call = streamingTools.removeValue(forKey: index) {
+                let input = (try? JSONSerialization.jsonObject(with: Data(call.json.utf8))) as? [String: Any] ?? [:]
+                activity = Self.activityLabel(name: call.name, input: input)
+                if let position = items.firstIndex(where: { $0.id == call.id }), case .tool(let tool) = items[position], tool.summary.isEmpty {
+                    items[position] = .tool(Tool(id: tool.id, name: tool.name, summary: Self.summary(name: call.name, input: input),
+                                                 result: tool.result, isError: tool.isError))
+                }
+            }
             // A finished thinking block is not kept: only the answer matters in the chat.
             if let position = streaming[index], items.indices.contains(position), case .thinking = items[position] {
                 items.remove(at: position)

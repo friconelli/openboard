@@ -43,11 +43,7 @@ struct LiveItemsView: View {
                     Spacer(minLength: 40)
                 }
             case .thinking:
-                Label("Sta pensando…", systemImage: "brain")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 26)
-                    .symbolEffect(.pulse)
+                ThinkingView(text: live.thinkingText)
             case .tool(let tool):
                 ToolCard(tool: tool)
             case .notice(_, let text, let isError):
@@ -75,12 +71,10 @@ struct LiveItemsView: View {
                 }
             }
         }
-        if live.isRunning && live.pendingPermission == nil && !live.items.contains(where: { if case .thinking = $0 { return true } else { return false } }) {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("\(live.provider.title) lavora…").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.leading, 26)
+        if let stalledSince = live.stalledSince {
+            StalledTurnBanner(since: stalledSince, live: live)
+        } else if live.isRunning && live.pendingPermission == nil {
+            ActivityLine(live: live)
         }
     }
 }
@@ -187,16 +181,96 @@ private struct PermissionCard: View {
     }
 }
 
+/// What Claude is doing right now, like the status line in the terminal:
+/// "✻ Esegue `npm test`… (42s · ↓ 1,2k token · esc per interrompere)".
+private struct ActivityLine: View {
+    @ObservedObject var live: LiveChat
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkle")
+                .foregroundStyle(Theme.coral)
+                .symbolEffect(.pulse)
+            Text((live.activity ?? "Lavora") + "…")
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(details(at: context.date))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 2)
+    }
+
+    private func details(at now: Date) -> String {
+        var parts: [String] = []
+        if let start = live.turnStartedAt { parts.append(StateMark.elapsed(start, now)) }
+        if live.turnOutputTokens > 0 {
+            let tokens = live.turnOutputTokens
+            parts.append("↓ " + (tokens >= 1000 ? String(format: "%.1fk", Double(tokens) / 1000) : "\(tokens)") + " token")
+        }
+        parts.append("esc per interrompere")
+        return "(" + parts.joined(separator: " · ") + ")"
+    }
+}
+
+/// Claude's reasoning while it thinks, in grey; the last lines only, it goes away when done.
+private struct ThinkingView: View {
+    let text: String
+
+    var body: some View {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).suffix(4).joined(separator: "\n")
+        if !lines.isEmpty {
+            Text(lines)
+                .font(.callout.italic())
+                .foregroundStyle(.secondary)
+                .lineLimit(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 26)
+                .transition(.opacity)
+        }
+    }
+}
+
+/// A turn that has gone fully silent for a while (seen once with a tool call that never
+/// returned): makes the hang visible instead of an endless, indistinguishable spinner.
+private struct StalledTurnBanner: View {
+    let since: Date
+    let live: LiveChat
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
+            Text("\(live.provider.title) non risponde da \(Text(since, style: .relative)): potrebbe essersi bloccato.")
+                .font(.caption)
+            Spacer()
+            Button("Interrompi") { live.stop() }
+                .controlSize(.small)
+        }
+        .padding(10)
+        .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.warning.opacity(0.3)))
+        .padding(.leading, 26)
+    }
+}
+
 /// Where you write to Claude: ↩ sends, ⇧↩ goes to a new line. Under it permission mode,
 /// model, account, context and the 5-hour / 7-day usage of the account.
 struct ChatComposer: View {
     @ObservedObject var store: DeckStore
     @ObservedObject var live: LiveChat
     let blockedReason: String?
+    var blockingSession: ActiveSession? = nil
+    var onTakeOver: ((ActiveSession) -> Void)? = nil
 
     @FocusState private var focused: Bool
     @State private var attachments: [URL] = []
     @State private var dropTargeted = false
+    @State private var takingOver = false
 
     /// The draft is kept per chat (and across launches) until it is sent.
     private var text: String {
@@ -212,9 +286,23 @@ struct ChatComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let blockedReason {
-                Label(blockedReason, systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.warning)
+                    Text(blockedReason).font(.caption)
+                    Spacer()
+                    if let blockingSession, let onTakeOver {
+                        Button(takingOver ? "Chiusura…" : "Prendi qui il controllo") {
+                            takingOver = true
+                            onTakeOver(blockingSession)
+                        }
+                        .controlSize(.small)
+                        .disabled(takingOver)
+                        .help("Chiude il processo di \(blockingSession.accountName) (avviato \(blockingSession.startedAt.map { relative($0) } ?? "")) e sblocca la scrittura da qui")
+                    }
+                }
+                .padding(10)
+                .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.warning.opacity(0.3)))
             }
             if !attachments.isEmpty { attachmentsRow }
             PlaceholderTextEditor(placeholder: live.isRunning ? "\(live.provider.title) sta lavorando…" : "Scrivi a \(live.provider.title)…", text: textBinding, padding: 0)
@@ -317,6 +405,7 @@ struct ChatComposer: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
         .padding(.top, 6)
+        .onChange(of: blockingSession?.pid) { _, _ in takingOver = false }
     }
 
     private func submit() {
