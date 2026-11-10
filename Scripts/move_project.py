@@ -7,6 +7,7 @@ history.jsonl records the "project" of each prompt. Codex records "cwd" in its s
 moved by hand loses all of that (/resume, memory, history); this moves them together.
 
 Usage: move_project.py moves.json [--apply]
+       move_project.py chat <session id or its start> <folder> [--apply]
 moves.json: [["/old/path", "/new/path"], ...]. Without --apply it only reports.
 Refuses folders where a Claude session or another process is working. Keeps file dates.
 """
@@ -149,7 +150,70 @@ def apply(moves, store_moves):
         print("openboard config aggiornata")
 
 
+def move_chat(prefix, folder, do_apply):
+    """Moves one chat to another working folder: transcript, its side folder, cwd, history."""
+    folder = os.path.abspath(os.path.expanduser(folder))
+    found = glob.glob(os.path.join(STORE, "*", prefix + "*.jsonl"))
+    if len(found) != 1:
+        raise SystemExit(f"{len(found)} chat trovate per {prefix}")
+    path = found[0]
+    sid = os.path.basename(path)[:-6]
+    for d in CONFIG_DIRS:
+        for f in glob.glob(os.path.join(d, "sessions", "*.json")):
+            try:
+                pid = int(os.path.basename(f)[:-5])
+                os.kill(pid, 0)
+                if json.load(open(f)).get("sessionId") == sid:
+                    raise SystemExit(f"La chat è ancora aperta (processo {pid}): chiudila prima.")
+            except (OSError, ValueError):
+                pass
+    old_cwd = dir_cwd(os.path.dirname(path))
+    dest = os.path.join(STORE, enc(folder))
+    print(f"{sid}: {old_cwd} -> {folder}")
+    if not do_apply:
+        return
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(dest, exist_ok=True)
+
+    def merge(src, dst):
+        if not os.path.exists(dst):
+            os.rename(src, dst)
+        elif os.path.isdir(src) and os.path.isdir(dst):
+            for entry in os.listdir(src):
+                merge(os.path.join(src, entry), os.path.join(dst, entry))
+            os.rmdir(src)
+        else:
+            raise SystemExit(f"conflitto: {dst}")
+
+    for src in (path, path[:-6]):
+        if os.path.exists(src):
+            merge(src, os.path.join(dest, os.path.basename(src)))
+    if old_cwd:
+        rewrite(os.path.join(dest, sid + ".jsonl"), [(old_cwd, folder)], "cwd")
+    for d in CONFIG_DIRS:
+        h = os.path.join(d, "history.jsonl")
+        if not os.path.exists(h):
+            continue
+        stat = os.stat(h)
+        lines = []
+        for line in open(h, encoding="utf-8"):
+            try:
+                j = json.loads(line)
+                if j.get("sessionId") == sid and j.get("project") == old_cwd:
+                    j["project"] = folder
+                    line = json.dumps(j, ensure_ascii=False) + "\n"
+            except ValueError:
+                pass
+            lines.append(line)
+        open(h, "w", encoding="utf-8").writelines(lines)
+        os.utime(h, (stat.st_atime, stat.st_mtime))
+    print("fatto")
+
+
 if __name__ == "__main__":
+    if sys.argv[1] == "chat":
+        move_chat(sys.argv[2], sys.argv[3], "--apply" in sys.argv)
+        raise SystemExit
     moves = [(os.path.abspath(os.path.expanduser(a)), os.path.abspath(os.path.expanduser(b)))
              for a, b in json.load(open(sys.argv[1]))]
     problems, store_moves = plan(moves)
