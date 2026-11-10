@@ -30,12 +30,18 @@ struct SkillsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHeader(
-                symbol: "wand.and.stars",
-                tint: Theme.accent,
-                title: "Skill",
-                subtitle: "Istruzioni che Claude usa quando servono. Il nome e la descrizione di ogni skill attiva entrano in ogni chat: spegni quelle che non usi per consumare meno token."
-            ) {
+            // Not PageHeader: its subtitle takes its full height whatever the width, which on a
+            // page without a scroll view set a minimum window height of thousands of points.
+            HStack(alignment: .top, spacing: 14) {
+                IconTile(symbol: "wand.and.stars", tint: Theme.accent, size: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Skill").font(.title2.bold())
+                    Text("Istruzioni che Claude usa quando servono. Il nome e la descrizione di ogni skill attiva entrano in ogni chat: spegni quelle che non usi per consumare meno token.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("~\(tokensPerChat / 1000)k token")
                         .font(.title3.weight(.semibold).monospacedDigit())
@@ -44,16 +50,19 @@ struct SkillsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .fixedSize()
             }
             .padding(20)
             Divider()
             HStack(spacing: 0) {
                 list
                     .frame(width: 330)
+                    .frame(minHeight: 0, maxHeight: .infinity)
                 Divider()
                 detail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             }
+            .frame(minHeight: 0, maxHeight: .infinity)
         }
         .background(Theme.pageBackground ?? Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: reload)

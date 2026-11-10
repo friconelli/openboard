@@ -499,13 +499,17 @@ private struct ProjectHeaderRow: View {
                     .help("\(AgentTeams.agents(agentsAtWork)) al lavoro")
             }
             Spacer(minLength: 4)
-            if hovering {
-                ProjectButtons(store: store, path: project.id, focus: focus)
-            } else {
+            // Both always laid out, one visible: hovering must not change the row's size.
+            ZStack(alignment: .trailing) {
                 Text("\(project.chats.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
+                    .opacity(hovering ? 0 : 1)
+                ProjectButtons(store: store, path: project.id, focus: focus)
+                    .opacity(hovering ? 1 : 0)
+                    .allowsHitTesting(hovering)
             }
+            .frame(height: 20)
         }
         .padding(.top, 8)
         .padding(.bottom, 3)
