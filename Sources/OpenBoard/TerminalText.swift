@@ -35,9 +35,15 @@ struct SelectableText: NSViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: NSTextView, context: Context) -> CGSize? {
+        // Measured on a separate layout: changing the view's own container here made it wrap at
+        // the width of an earlier probe while SwiftUI drew it wider (lines overlapping the next row).
         let width = max(40, proposal.width ?? 600)
-        guard let container = view.textContainer, let layout = view.layoutManager else { return nil }
-        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        let storage = NSTextStorage(attributedString: attributed)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
         layout.ensureLayout(for: container)
         let height = ceil(layout.usedRect(for: container).height)
         return CGSize(width: width, height: max(height, 1))

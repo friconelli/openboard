@@ -124,6 +124,10 @@ extension ChatsView {
     }
 
     func toggleExpanded(_ chat: ChatSession) {
+        withAnimation(Motion.layout) { toggleExpandedNow(chat) }
+    }
+
+    private func toggleExpandedNow(_ chat: ChatSession) {
         if !ui.query.isEmpty {
             if ui.searchCollapsed.contains(chat.id) { ui.searchCollapsed.remove(chat.id) } else { ui.searchCollapsed.insert(chat.id) }
             return
@@ -189,6 +193,9 @@ extension ChatsView {
         .listStyle(.inset)
         .scrollContentBackground(Theme.isWarm ? .hidden : .automatic)
         .environment(\.defaultMinListRowHeight, 10)
+        // A chat that starts working moves up, agents appear under their orchestrator: show it.
+        .animation(Motion.layout, value: store.liveTick)
+        .animation(Motion.layout, value: (store.config.teams ?? [:]).values.reduce(0) { $0 + $1.workers.count })
     }
 
     @ViewBuilder
@@ -383,6 +390,7 @@ struct SidebarChatRow: View {
                         StatusDot(busy: false).help("Aperta in un terminale")
                     }
                     StateMark(state: state)
+                        .animation(Motion.ease(), value: state)
                 }
                 if density == .comfortable {
                     HStack(spacing: 6) {
@@ -422,6 +430,7 @@ struct SidebarAgentRow: View {
                 .help(worker.report.map { "Resoconto:\n\($0.prefix(600))" } ?? worker.task)
             Spacer(minLength: 4)
             StateMark(state: state)
+                .animation(Motion.ease(), value: state)
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
@@ -515,6 +524,7 @@ private struct ProjectHeaderRow: View {
                     .allowsHitTesting(hovering)
             }
             .frame(height: 20)
+            .animation(Motion.ease(0.12), value: hovering)
         }
         .padding(.top, 8)
         .padding(.bottom, 3)

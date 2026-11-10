@@ -23,11 +23,13 @@ final class ChatsUI: ObservableObject {
     @Published var shown: [String: Int] = [:]
 
     func toggleProject(_ path: String) {
-        if !query.isEmpty {
-            if searchCollapsed.contains(path) { searchCollapsed.remove(path) } else { searchCollapsed.insert(path) }
-            return
+        withAnimation(Motion.layout) {
+            if !query.isEmpty {
+                if searchCollapsed.contains(path) { searchCollapsed.remove(path) } else { searchCollapsed.insert(path) }
+                return
+            }
+            if collapsedProjects.contains(path) { collapsedProjects.remove(path) } else { collapsedProjects.insert(path); shown[path] = nil }
         }
-        if collapsedProjects.contains(path) { collapsedProjects.remove(path) } else { collapsedProjects.insert(path); shown[path] = nil }
     }
     @Published var accountFilter: String?
     @Published var renameTarget: ChatSession?

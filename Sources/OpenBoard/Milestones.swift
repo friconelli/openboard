@@ -166,7 +166,7 @@ struct MilestonesSummary: View {
                 Button {
                     var updated = list
                     if let index = updated.firstIndex(where: { $0.id == milestone.id }) { updated[index].done.toggle() }
-                    store.setMilestones(updated, for: folder)
+                    withAnimation(Motion.ease()) { store.setMilestones(updated, for: folder) }
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: milestone.done ? "checkmark.circle.fill" : "circle")

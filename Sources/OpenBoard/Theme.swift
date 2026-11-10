@@ -592,3 +592,17 @@ extension View {
         }
     }
 }
+
+/// Motion used across the app: short, ease-out, only where something changes place or state.
+/// Everything turns off with "Riduci movimento" in the system settings.
+enum Motion {
+    static var reduce: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Fades and small moves (a row appearing, a state changing).
+    static func ease(_ duration: Double = 0.18) -> Animation? { reduce ? nil : .easeOut(duration: duration) }
+    /// Layout changes (groups opening, rows reordering).
+    static var layout: Animation? { reduce ? nil : .snappy(duration: 0.24) }
+    /// New content arriving: a short rise from below with a fade.
+    static var arrive: AnyTransition { reduce ? .opacity : .opacity.combined(with: .offset(y: 6)) }
+    /// Something that asks for attention (a permission): rises from the composer.
+    static var attention: AnyTransition { reduce ? .opacity : .move(edge: .bottom).combined(with: .opacity) }
+}

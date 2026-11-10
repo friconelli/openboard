@@ -24,7 +24,27 @@ struct LiveItemsView: View {
     @AppStorage(ChatStyle.key) private var chatStyle: ChatStyle = .terminal
 
     var body: some View {
+        Group { items }
+            // New steps arrive from below; a permission rises into view; the queue fills and empties.
+            .animation(Motion.ease(), value: live.items.count)
+            .animation(Motion.ease(0.22), value: live.pendingPermission?.id)
+            .animation(Motion.ease(), value: live.queue.count)
+    }
+
+    @ViewBuilder
+    private var items: some View {
         ForEach(live.items) { item in
+            itemView(item).transition(Motion.arrive)
+        }
+        if let permission = live.pendingPermission {
+            PermissionCard(permission: permission, live: live)
+                .transition(Motion.attention)
+        }
+        queueAndStatus
+    }
+
+    @ViewBuilder
+    private func itemView(_ item: LiveChat.Item) -> some View {
             switch item {
             case .user(_, let text) where chatStyle == .terminal:
                 TerminalPrompt(text: text)
@@ -59,11 +79,17 @@ struct LiveItemsView: View {
                     .foregroundStyle(isError ? Theme.danger : .secondary)
                     .padding(.leading, 26)
             }
-        }
-        if let permission = live.pendingPermission {
-            PermissionCard(permission: permission, live: live)
-        }
+    }
+
+    @ViewBuilder
+    private var queueAndStatus: some View {
         ForEach(live.queue) { queued in
+            queuedRow(queued).transition(Motion.arrive)
+        }
+        statusRows
+    }
+
+    private func queuedRow(_ queued: LiveChat.Queued) -> some View {
             HStack {
                 Spacer(minLength: 60)
                 VStack(alignment: .trailing, spacing: 3) {
@@ -77,7 +103,10 @@ struct LiveItemsView: View {
                     }
                 }
             }
-        }
+    }
+
+    @ViewBuilder
+    private var statusRows: some View {
         if let stalledSince = live.stalledSince {
             StalledTurnBanner(since: stalledSince, live: live)
         } else if live.isRunning && live.pendingPermission == nil {
@@ -197,7 +226,7 @@ private struct ActivityLine: View {
         HStack(spacing: 8) {
             Text("✻")
                 .foregroundStyle(Theme.coral)
-                .phaseAnimator([1.0, 0.35]) { view, opacity in view.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.8) }
+                .phaseAnimator(Motion.reduce ? [1.0] : [1.0, 0.35]) { view, opacity in view.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.8) }
             // The terminal's word for the turn, then what is running now when it says more.
             Text((live.spinnerVerb ?? live.activity ?? "Lavora") + "…")
                 .font(.callout)
@@ -209,9 +238,13 @@ private struct ActivityLine: View {
                     .font(.callout)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .id(step)
+                    .transition(Motion.arrive)
             }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(details(at: context.date))
+                    .contentTransition(.numericText())
+                    .animation(Motion.ease(0.25), value: context.date)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -219,6 +252,7 @@ private struct ActivityLine: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, 2)
+        .animation(Motion.ease(0.2), value: live.activity)
     }
 
     private func details(at now: Date) -> String {
@@ -546,15 +580,14 @@ struct TerminalToolLine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("⏺").foregroundStyle(dot)
-                    .opacity(tool.isDone ? 1 : 0.9)
+                RunningDot(color: dot, running: !tool.isDone)
                 (Text(tool.name).bold() + Text(tool.summary.isEmpty ? "" : "(\(tool.summary))").foregroundColor(Term.dim))
                     .lineLimit(expanded ? nil : 1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-            .onTapGesture { expanded.toggle() }
+            .onTapGesture { withAnimation(Motion.ease()) { expanded.toggle() } }
             .help(expanded ? "Riduci l'output" : "Mostra tutto l'output")
             if tool.isDone {
                 let lines = output
@@ -571,10 +604,25 @@ struct TerminalToolLine: View {
                     }
                     if !expanded && total > 3 {
                         Text("     … +\(total - 3) righe (clic per vedere tutto)").foregroundStyle(Term.dim.opacity(0.7))
-                            .onTapGesture { expanded = true }
+                            .onTapGesture { withAnimation(Motion.ease()) { expanded = true } }
                     }
                 }
             }
         }
+    }
+}
+
+/// The tool's dot: pulses while the tool runs, settles on green or red when it ends.
+private struct RunningDot: View {
+    let color: Color
+    let running: Bool
+
+    var body: some View {
+        Text("⏺")
+            .foregroundStyle(color)
+            .phaseAnimator(running && !Motion.reduce ? [1.0, 0.3] : [1.0]) { view, opacity in
+                view.opacity(opacity)
+            } animation: { _ in .easeInOut(duration: 0.7) }
+            .animation(Motion.ease(), value: running)
     }
 }

@@ -18,12 +18,14 @@ struct TeamBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Motion.layout, value: store.team(for: chatID)?.workers ?? [])
         .background(Theme.accent.opacity(0.07))
         .overlay(alignment: .top) { Divider() }
     }
 
     private func orchestratorBar(_ team: AgentTeam) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Agents arriving, finishing and leaving the active list.
             HStack(spacing: 8) {
                 Label("Orchestratore", systemImage: "person.3.fill")
                     .font(.callout.weight(.semibold))
@@ -50,10 +52,10 @@ struct TeamBar: View {
             } else {
                 let workers = showAll ? team.workers : Array(team.workers.filter { $0.status == .running || $0.status == .queued }.prefix(6))
                 FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(workers) { worker in agentChip(worker) }
+                    ForEach(workers) { worker in agentChip(worker).transition(.scale(scale: 0.85).combined(with: .opacity)) }
                     let hidden = team.workers.count - workers.count
                     if hidden > 0 || showAll {
-                        Button(showAll ? "Solo attivi" : "Tutti (\(team.workers.count))") { showAll.toggle() }
+                        Button(showAll ? "Solo attivi" : "Tutti (\(team.workers.count))") { withAnimation(Motion.layout) { showAll.toggle() } }
                             .buttonStyle(.link)
                             .font(.caption)
                     }
