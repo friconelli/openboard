@@ -450,6 +450,12 @@ final class LiveChat: ObservableObject {
     private func handle(_ event: [String: Any]) {
         if provider == .codex { handleCodex(event); return }
         switch event["type"] as? String {
+        case "system":
+            // The model Claude starts with: when none was chosen, that is what "Predefinito" means.
+            if event["subtype"] as? String == "init", model == nil, let used = event["model"] as? String, !used.isEmpty {
+                ModelNames.remember(used, for: account)
+                objectWillChange.send()
+            }
         case "control_response":
             guard let response = event["response"] as? [String: Any], let id = response["request_id"] as? String,
                   modeRequests.remove(id) != nil, response["subtype"] as? String == "error" else { return }

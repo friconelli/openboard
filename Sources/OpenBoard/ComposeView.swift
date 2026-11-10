@@ -199,7 +199,7 @@ struct ComposeView: View {
                         Text("Modello").foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 4) {
                             Picker("", selection: $model) {
-                                Text("Predefinito").tag(ModelTier?.none)
+                                Text(ModelNames.defaultLabel(for: store.preferredAccount)).tag(ModelTier?.none)
                                 ForEach(ModelTier.allCases) { Text($0.label).tag(Optional($0)) }
                             }
                             .labelsHidden()

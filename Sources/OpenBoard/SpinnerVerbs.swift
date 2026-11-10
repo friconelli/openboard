@@ -67,3 +67,36 @@ enum SpinnerVerbs {
         return (setting["mode"] as? String == "replace", verbs)
     }
 }
+
+/// Readable model names: "claude-opus-5-5" → "Opus 5.5", "sonnet" → "Sonnet".
+enum ModelNames {
+    static func pretty(_ id: String) -> String {
+        let clean = id.replacingOccurrences(of: #"\[.*\]$"#, with: "", options: .regularExpression)
+        var parts = clean.split(separator: "-").map(String.init)
+        if parts.first == "claude" { parts.removeFirst() }
+        guard let family = parts.first else { return id }
+        let version = parts.dropFirst().filter { $0.count <= 2 && Int($0) != nil }.joined(separator: ".")
+        return family.capitalized + (version.isEmpty ? "" : " " + version)
+    }
+
+    private static func key(_ account: ClaudeAccount?) -> String { "defaultModel." + (account?.configDir.path ?? "default") }
+
+    /// The model "Predefinito" means for an account: its setting, else the one Claude reported last.
+    static func defaultModel(for account: ClaudeAccount?) -> String? {
+        let seen = UserDefaults.standard.string(forKey: key(account))
+        if let set = account?.model, !set.isEmpty {
+            // The setting is often just "sonnet": the version comes from what Claude reported.
+            if let seen, !set.contains(where: \.isNumber), seen.lowercased().contains(set.lowercased()) { return pretty(seen) }
+            return pretty(set)
+        }
+        return seen.map(pretty)
+    }
+
+    static func remember(_ model: String, for account: ClaudeAccount?) {
+        UserDefaults.standard.set(model, forKey: key(account))
+    }
+
+    static func defaultLabel(for account: ClaudeAccount?) -> String {
+        defaultModel(for: account).map { "Predefinito (\($0))" } ?? "Predefinito"
+    }
+}

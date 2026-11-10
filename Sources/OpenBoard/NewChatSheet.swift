@@ -237,7 +237,9 @@ struct NewChatSheet: View {
             .help("Account")
             Image(systemName: "cpu").foregroundStyle(.secondary).padding(.leading, 6)
             Picker("Modello", selection: $model) {
-                ForEach(models, id: \.0) { Text($0.0).tag($0.1) }
+                ForEach(models, id: \.0) { item in
+                    Text(item.1 == nil ? ModelNames.defaultLabel(for: accountID.flatMap(store.account(id:))) : item.0).tag(item.1)
+                }
             }
             .labelsHidden()
             .fixedSize()

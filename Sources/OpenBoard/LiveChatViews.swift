@@ -351,10 +351,11 @@ struct ChatComposer: View {
                 .fixedSize()
                 Menu {
                     ForEach(models, id: \.0) { title, value in
-                        Button(title) { live.model = value }
+                        Button(value == nil ? ModelNames.defaultLabel(for: live.account) : title) { live.model = value }
                     }
                 } label: {
-                    Label(models.first { $0.1 == live.model }?.0 ?? live.model ?? "Predefinito", systemImage: "cpu")
+                    Label(live.model == nil ? ModelNames.defaultLabel(for: live.account)
+                          : models.first { $0.1 == live.model }?.0 ?? live.model ?? "", systemImage: "cpu")
                 }
                 .fixedSize()
                 Menu {

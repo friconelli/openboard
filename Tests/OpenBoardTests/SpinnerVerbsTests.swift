@@ -11,3 +11,12 @@ final class SpinnerVerbsTests: XCTestCase {
         print("verbi:", list.count, list.filter { $0.unicodeScalars.contains { !$0.isASCII } })
     }
 }
+
+final class ModelNamesTests: XCTestCase {
+    func testPrettyNames() {
+        XCTAssertEqual(ModelNames.pretty("claude-opus-5-5"), "Opus 5.5")
+        XCTAssertEqual(ModelNames.pretty("claude-sonnet-4-5-20250929"), "Sonnet 4.5")
+        XCTAssertEqual(ModelNames.pretty("claude-fable-5-1[1m]"), "Fable 5.1")
+        XCTAssertEqual(ModelNames.pretty("opus"), "Opus")
+    }
+}
