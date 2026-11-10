@@ -5,6 +5,32 @@ struct AccountsView: View {
     @ObservedObject var store: DeckStore
 
     private var namedAccounts: [ClaudeAccount] { store.accounts.filter { !$0.isDefault } }
+
+    /// Which account new chats start with in each area.
+    private var contextAccountsCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Account per area", systemImage: "arrow.triangle.branch")
+                    .font(.subheadline.weight(.medium))
+                Text("Le chat nuove partono con l'account dell'area della cartella; puoi sempre cambiarlo nella finestra Nuova chat.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(store.config.contexts, id: \.self) { context in
+                    HStack {
+                        Text(context).frame(width: 140, alignment: .leading)
+                        Picker("", selection: Binding(get: { store.config.contextAccounts?[context] ?? "" },
+                                                      set: { store.setAccount($0.isEmpty ? nil : $0, forContext: context) })) {
+                            Text("L'ultimo usato").tag("")
+                            ForEach(namedAccounts) { Text($0.name).tag($0.name) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
     private var defaultAccount: ClaudeAccount? { store.accounts.first { $0.isDefault } }
 
     var body: some View {
@@ -31,6 +57,7 @@ struct AccountsView: View {
                     }
                 }
 
+                contextAccountsCard
                 directLaunchCard
                 descriptionsCard
                 UpdatesCard()

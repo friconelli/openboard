@@ -120,10 +120,14 @@ struct NewChatSheet: View {
         }
         .padding(22)
         .frame(width: 860, height: 520)
+        // The account follows the folder's area (Personale → fede, Studiogusto → gusto…).
+        .onChange(of: folder) { _, newFolder in
+            if let newFolder, let account = store.account(forFolder: newFolder) { accountID = account.id }
+        }
         .onAppear {
             folder = initialFolder ?? store.recentFolders.first?.path
             if initialTeam { team = true; mode = .acceptEdits }
-            accountID = store.preferredAccount?.id
+            accountID = (folder.flatMap(store.account(forFolder:)) ?? store.preferredAccount)?.id
             messageFocused = true
         }
     }

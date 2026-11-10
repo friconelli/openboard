@@ -318,6 +318,23 @@ final class DeckStore: ObservableObject {
     }
 
     /// Account to propose for resuming: the one that last used Claude (most likely to have credits).
+    /// The account new chats in a folder start with: the one set for its area, else the usual one.
+    func account(forFolder folder: String) -> ClaudeAccount? {
+        if let context = config.context(forFolder: folder), let name = config.contextAccounts?[context],
+           let account = accounts.first(where: { $0.name == name }) {
+            return account
+        }
+        return preferredAccount
+    }
+
+    func setAccount(_ name: String?, forContext context: String) {
+        var map = config.contextAccounts ?? [:]
+        map[context] = name
+        config.contextAccounts = map
+        config.save()
+        objectWillChange.send()
+    }
+
     var preferredAccount: ClaudeAccount? {
         accounts.filter { !$0.isDefault }.max { ($0.lastActivity ?? .distantPast) < ($1.lastActivity ?? .distantPast) }
             ?? accounts.first

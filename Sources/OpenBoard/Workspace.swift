@@ -31,6 +31,8 @@ struct BoardConfig: Codable {
     var pinnedChats: [String]?
     /// Orchestrator chats (by id) and the agents they started.
     var teams: [String: AgentTeam]?
+    /// Context → name of the account new chats there start with (e.g. Studiogusto → gusto).
+    var contextAccounts: [String: String]?
     /// Project folder → the goals every chat started there carries.
     var milestones: [String: [Milestone]]?
 
